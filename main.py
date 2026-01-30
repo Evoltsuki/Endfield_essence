@@ -59,7 +59,7 @@ pyautogui.FAILSAFE = False
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别助手beta v0.2")
+        self.root.title("毕业基质自动识别助手beta v0.2 -by洁柔厨")
         self.root.geometry("540x820")
         self.root.attributes("-topmost", True)
 
@@ -77,18 +77,25 @@ class Matrixassistant:
 
         # --- UI 顶部栏 ---
         top_frame = tk.Frame(root)
-        top_frame.pack(anchor="nw", padx=10, pady=5)
+        top_frame.pack(fill="x", padx=10, pady=5)  # 加上 fill="x" 确保撑满宽度
 
+        # 1. 左侧：配置状态
         self.top_status_var = tk.StringVar()
         self.update_config_status()
         tk.Label(top_frame, textvariable=self.top_status_var, font=("微软雅黑", 9), fg="green").pack(side="left")
 
+        # 2. 右侧：群号和免费声明 (关键点：先 pack 右边的元素)
+        group_info = "群号:1006580737 | 本工具完全免费"  # 这里换成你的群号
+        tk.Label(top_frame, text=group_info, font=("微软雅黑", 9, "bold"), fg="#1565C0").pack(side="right")
+
+        # 3. 中间：扫描速度（依然紧跟在左侧状态后面）
         initial_speed = self.data.get("speed", "0.3")
         self.speed_var = tk.StringVar(value=initial_speed)
-        self.speed_entry = tk.Entry(top_frame, textvariable=self.speed_var, width=5)
-        self.speed_entry.pack(side="left", padx=(10, 2))
 
-        tk.Label(top_frame, text="扫描速度(秒)，推荐0.3-0.5", font=("微软雅黑", 9)).pack(side="left")
+        tk.Label(top_frame, text=" | 速度:", font=("微软雅黑", 9)).pack(side="left", padx=(5, 0))
+        self.speed_entry = tk.Entry(top_frame, textvariable=self.speed_var, width=5)
+        self.speed_entry.pack(side="left", padx=2)
+        tk.Label(top_frame, text="秒", font=("微软雅黑", 9)).pack(side="left")
 
         # 运行按钮
         self.run_btn = tk.Button(root, text="▶ 开始自动扫描", command=self.start_thread,
