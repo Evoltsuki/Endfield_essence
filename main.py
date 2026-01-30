@@ -37,7 +37,6 @@ def run_as_admin():
             return True
         else:
             executable = sys.executable
-            # 如果是 python.exe 运行，提权时尝试换成 pythonw.exe 以消除黑框
             if executable.endswith("python.exe"):
                 executable = executable.replace("python.exe", "pythonw.exe")
 
@@ -171,9 +170,12 @@ class Matrixassistant:
         weapons = []
         if os.path.exists(self.csv_file):
             try:
-                with open(self.csv_file, 'r', encoding='utf-8') as f:
+                # 使用 utf-8-sig 处理可能的 BOM 报头
+                with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
                     reader = csv.DictReader(f)
-                    [weapons.append(row) for row in reader]
+                    for row in reader:
+                        clean_row = {k.strip(): v.strip() for k, v in row.items() if k}
+                        weapons.append(clean_row)
             except:
                 pass
         return weapons
@@ -211,23 +213,50 @@ class Matrixassistant:
     def clean_text(self, raw_text):
         if not raw_text: return ""
         txt = re.sub(r'[^\u4e00-\u9fa5]', '', str(raw_text))
-        # 内部纠错字典
+        # 内部纠错字典：针对游戏词条全方位防御
         char_map = {
-            "玫": "攻", "政": "攻", "放": "攻", "效": "攻",
-            "燥": "爆", "曝": "爆", "瀑": "爆",
-            "辐": "力量", "撮": "力量",
-            "美": "主", "丑": "升", "装": "袭", "失": "生", "为": "力"
+            "玫": "攻", "政": "攻", "放": "攻", "绞": "效",
+            "燥": "爆", "曝": "爆", "瀑": "爆", "串": "率",
+            "辐": "力量", "撮": "力量", "为": "力", "厚": "源", "木": "术",
+            "美": "主", "丑": "升", "装": "袭", "失": "生", "谈": "识", "职": "识",
+            "嘉": "幕", "寞": "幕", "慕": "幕", "开": "升", "提开": "提升", "提外": "提升",
+            "统": "终", "凡": "几"
         }
         for wrong, right in char_map.items():
             txt = txt.replace(wrong, right)
         return txt
 
-    def fuzzy_match(self, target, text):
-        if not target: return True
-        target_c = self.clean_text(target)
-        if target_c in text: return True
-        threshold = 0.8 if len(target_c) <= 2 else 0.72
-        return difflib.SequenceMatcher(None, target_c, text).ratio() >= threshold
+    def check_all_attributes(self, weapon, ocr_full_text):
+        """
+        核心判定逻辑：分段校验。
+        确保 CSV 里的每一个非空词条都能在 OCR 结果中找到较高的局部相似度。
+        这能有效解决“长词稀释短词”导致的误锁问题。
+        """
+        c1 = self.clean_text(weapon.get('毕业词条1', ''))
+        c2 = self.clean_text(weapon.get('毕业词条2', ''))
+        c3 = self.clean_text(weapon.get('毕业词条3', ''))
+
+        targets = [t for t in [c1, c2, c3] if t]
+        if not targets: return False
+
+        # 1. 逐个词条进行局部相似度检查
+        for t in targets:
+            # 直接包含判定
+            if t in ocr_full_text:
+                continue
+
+            # 模糊相似度判定 (针对单个词条)
+            ratio = difflib.SequenceMatcher(None, t, ocr_full_text).ratio()
+
+            # 动态阈值：长词（含“提升”）要求 0.45 即可，短词要求 0.6
+            limit = 0.45 if len(t) > 2 else 0.60
+            if ratio < limit:
+                return False
+
+        # 2. 整体拼接字符串再次校验比例，防止极端干扰
+        full_target = "".join(targets)
+        overall_ratio = difflib.SequenceMatcher(None, full_target, ocr_full_text).ratio()
+        return overall_ratio >= 0.65
 
     def is_gold(self, cell_bgr):
         try:
@@ -269,11 +298,8 @@ class Matrixassistant:
                         ocr_snap = np.array(sct.grab({"left": int(cur_win[0] + roi[0]), "top": int(cur_win[1] + roi[1]),
                                                       "width": int(roi[2]), "height": int(roi[3])}))
 
-                        # 1. 灰度化
                         gray = cv2.cvtColor(cv2.cvtColor(ocr_snap, cv2.COLOR_BGRA2BGR), cv2.COLOR_BGR2GRAY)
-                        # 2. 缩放倍数 2.0
                         scaled = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-                        # 3. 手动阈值 150 + 反转颜色
                         _, binary = cv2.threshold(scaled, 150, 255, cv2.THRESH_BINARY_INV)
 
                         h, w = binary.shape
@@ -287,25 +313,30 @@ class Matrixassistant:
                             res = self.ocr.classification(img_bytes.tobytes())
                             if res:
                                 txt = self.clean_text(res)
-                                if txt: clean_list.append(txt); full_txt += txt
+                                if txt:
+                                    clean_list.append(txt)
+                                    full_txt += txt
 
                         if full_txt:
-                            self.gui_log(f"{'，'.join(clean_list)}", "green")
+                            self.gui_log(f"识别结果: {'，'.join(clean_list)}", "green")
+
+                            is_matched = False
                             for weapon in self.weapon_list:
-                                c1, c2, c3 = weapon.get('毕业词条1', ''), weapon.get('毕业词条2', ''), weapon.get(
-                                    '毕业词条3', '')
-                                if all(self.fuzzy_match(cx, full_txt) for cx in [c1, c2, c3] if cx):
+                                if self.check_all_attributes(weapon, full_txt):
                                     self.gui_log("检测到毕业基质！", "gold")
                                     if self.is_already_locked(sct, lock, cur_win):
                                         self.gui_log("该基质已锁定，跳过点击", "red")
                                     else:
                                         pydirectinput.click(int(cur_win[0] + lock[0]), int(cur_win[1] + lock[1]))
                                         time.sleep(0.4)
-                                    self.add_to_lock_list(weapon['武器'], f"{c1}，{c2}，{c3}",
+
+                                    attrs_display = f"{weapon.get('毕业词条1', '')},{weapon.get('毕业词条2', '')},{weapon.get('毕业词条3', '')}"
+                                    self.add_to_lock_list(weapon['武器'], attrs_display,
                                                           f"{current_row + 1}-{c + 1}", weapon.get('星级', '6'))
+                                    is_matched = True
                                     break
                         else:
-                            self.gui_log("-> 未读到词条")
+                            self.gui_log("-> 未读到有效词条")
                     else:
                         self.gui_log(f"非金色基质，停止扫描")
                         self.running = False
@@ -314,8 +345,9 @@ class Matrixassistant:
                 if not self.running: break
                 current_row += 1
 
+                # 翻页对齐逻辑
                 if current_row >= 5:
-                    self.gui_log(f"[系统] 第 {current_row} 行完成，执行精准拖拽对齐...", "black")
+                    self.gui_log(f"[翻页] 第 {current_row} 行完成，执行滚动对齐...", "black")
                     drag_x = int(cur_win[0] + grid["rx"] + 4 * grid["rdx"])
                     drag_y = int(cur_win[1] + grid["ry"] + 4 * grid["rdy"])
                     pydirectinput.moveTo(drag_x, drag_y)
@@ -377,7 +409,7 @@ class Matrixassistant:
 
 if __name__ == "__main__":
     if run_as_admin():
-        hide_console()  # 只有成功以管理员运行后才尝试隐藏控制台
+        hide_console()
         root = tk.Tk()
         app = Matrixassistant(root)
         root.mainloop()
