@@ -38,7 +38,6 @@ def run_as_admin():
             executable = sys.executable
             if executable.endswith("python.exe"):
                 executable = executable.replace("python.exe", "pythonw.exe")
-
             ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, __file__, None, 1)
             return False
     except:
@@ -57,9 +56,14 @@ pyautogui.FAILSAFE = False
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别助手beta v0.3")
-        self.root.geometry("540x820")
+        self.root.title("毕业基质自动识别工具beta v0.35 -by洁柔厨")
+        self.root.geometry("540x880")
         self.root.attributes("-topmost", True)
+
+        # --- 右上角信息标注 ---
+        info_label = tk.Label(root, text="群号: 1006580737\n本工具完全免费",
+                              font=("微软雅黑", 9, "bold"), fg="#FF5722", justify="right")
+        info_label.place(relx=1.0, x=-10, y=10, anchor="ne")
 
         try:
             self.ocr = ddddocr.DdddOcr(show_ad=False, beta=True)
@@ -75,6 +79,7 @@ class Matrixassistant:
         self.weapon_list = self.load_weapon_csv()
         self.corrections = self.load_corrections()
 
+        # --- UI 顶部栏 ---
         top_frame = tk.Frame(root)
         top_frame.pack(anchor="nw", padx=10, pady=5)
 
@@ -82,13 +87,21 @@ class Matrixassistant:
         self.update_config_status()
         tk.Label(top_frame, textvariable=self.top_status_var, font=("微软雅黑", 9), fg="green").pack(side="left")
 
+        # 速度输入
+        tk.Label(top_frame, text=" | 速度:", font=("微软雅黑", 9)).pack(side="left")
         initial_speed = self.data.get("speed", "0.3")
         self.speed_var = tk.StringVar(value=initial_speed)
         self.speed_entry = tk.Entry(top_frame, textvariable=self.speed_var, width=5)
-        self.speed_entry.pack(side="left", padx=(10, 2))
+        self.speed_entry.pack(side="left", padx=2)
 
-        tk.Label(top_frame, text="扫描速度(秒)，推荐0.3-0.5", font=("微软雅黑", 9)).pack(side="left")
+        # 滑动距离输入 (修改处：直接输入像素距离)
+        tk.Label(top_frame, text=" | 滑动像素:", font=("微软雅黑", 9)).pack(side="left")
+        initial_dist = self.data.get("scroll_pixel_dist", "200")
+        self.dist_var = tk.StringVar(value=initial_dist)
+        self.dist_entry = tk.Entry(top_frame, textvariable=self.dist_var, width=5)
+        self.dist_entry.pack(side="left", padx=2)
 
+        # 运行按钮
         self.run_btn = tk.Button(root, text="▶ 开始自动扫描", command=self.start_thread,
                                  bg="#2E7D32", fg="white", font=("微软雅黑", 12, "bold"),
                                  width=15, height=1)
@@ -142,8 +155,9 @@ class Matrixassistant:
             return False
 
     def start_thread(self):
+        # 修改处：去掉了对 scroll_dist 的强制要求，因为现在是手动输入
         if not all(self.data.get(k) is not None for k in ["roi", "grid", "lock"]):
-            messagebox.showwarning("提示", "请先完成初始化配置")
+            messagebox.showwarning("提示", "请先完成框选识别区、校准网格和校准锁定键")
             return
         self.save_config()
         self.corrections = self.load_corrections()
@@ -193,28 +207,30 @@ class Matrixassistant:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     conf = json.load(f)
                     if "speed" not in conf: conf["speed"] = "0.3"
+                    if "scroll_pixel_dist" not in conf: conf["scroll_pixel_dist"] = "200"
                     return conf
             except:
                 pass
-        return {"roi": None, "grid": None, "lock": None, "speed": "0.3"}
+        return {"roi": None, "grid": None, "lock": None, "speed": "0.3", "scroll_pixel_dist": "200"}
 
     def save_config(self):
         try:
             self.data["speed"] = self.speed_var.get()
+            self.data["scroll_pixel_dist"] = self.dist_var.get()
         except:
-            self.data["speed"] = "0.3"
+            pass
         with open(self.config_file, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, ensure_ascii=False, indent=4)
         self.update_config_status()
 
     def update_config_status(self):
+        # 只要 ROI、网格、锁定位置这三个基础坐标有了就显示就绪
         ready = all(self.data.get(k) is not None for k in ["roi", "grid", "lock"])
-        self.top_status_var.set("✅ 配置已载入" if ready else "❌ 配置未就绪")
+        self.top_status_var.set("✅ 配置已就绪" if ready else "❌ 配置不全")
 
     def clear_config(self):
-        self.data = {"roi": None, "grid": None, "lock": None, "speed": "0.3"}
+        self.data = {"roi": None, "grid": None, "lock": None, "speed": "0.3", "scroll_pixel_dist": "200"}
         if os.path.exists(self.config_file): os.remove(self.config_file)
-        self.speed_var.set("0.3")
         self.update_config_status()
 
     def clean_text(self, raw_text):
@@ -226,43 +242,21 @@ class Matrixassistant:
         return txt
 
     def check_all_attributes(self, weapon, ocr_full_text):
-        """
-        核心逻辑优化：滑动窗口匹配。
-        防止长词条干扰短词条判定。
-        """
         c1 = self.clean_text(weapon.get('毕业词条1', ''))
         c2 = self.clean_text(weapon.get('毕业词条2', ''))
         c3 = self.clean_text(weapon.get('毕业词条3', ''))
-
         targets = [t for t in [c1, c2, c3] if t]
         if not targets: return False
-
         for t in targets:
-            # 1. 包含判定
-            if t in ocr_full_text:
-                continue
-
-            # 2. 精准滑动窗口比对
-            # 取词条长度为窗口大小，在OCR结果中滑动，寻找最相似的片段
+            if t in ocr_full_text: continue
             best_match_ratio = 0
             t_len = len(t)
-
-            # 如果OCR结果比词条还短，直接算整体比例
-            if len(ocr_full_text) <= t_len:
-                best_match_ratio = difflib.SequenceMatcher(None, t, ocr_full_text).ratio()
-            else:
-                # 滑动窗口查找
-                for i in range(len(ocr_full_text) - t_len + 1):
-                    window_text = ocr_full_text[i:i + t_len]
-                    ratio = difflib.SequenceMatcher(None, t, window_text).ratio()
-                    if ratio > best_match_ratio:
-                        best_match_ratio = ratio
-
-            # 提高判定门槛：长词(如XX提升)要求 0.8，短词要求 0.85
-            limit = 0.80 if t_len > 2 else 0.85
-            if best_match_ratio < limit:
-                return False
-
+            for i in range(len(ocr_full_text) - t_len + 1):
+                window_text = ocr_full_text[i:i + t_len]
+                ratio = difflib.SequenceMatcher(None, t, window_text).ratio()
+                if ratio > best_match_ratio: best_match_ratio = ratio
+            limit = 0.82 if t_len > 2 else 0.88
+            if best_match_ratio < limit: return False
         return True
 
     def is_gold(self, cell_bgr):
@@ -285,8 +279,10 @@ class Matrixassistant:
             while self.running:
                 try:
                     current_speed = float(self.speed_var.get())
+                    # 修改处：直接获取输入框中的像素距离值
+                    move_pixel = int(float(self.dist_var.get()))
                 except:
-                    current_speed = 0.3
+                    current_speed, move_pixel = 0.3, 200
 
                 for c in range(9):
                     if not self.running: break
@@ -294,7 +290,6 @@ class Matrixassistant:
                     if not cur_win: break
                     abs_x = int(cur_win[0] + grid["rx"] + c * grid["rdx"])
                     abs_y = int(cur_win[1] + grid["ry"] + min(current_row, 4) * grid["rdy"])
-
                     snap = np.array(sct.grab({"left": abs_x - 80, "top": abs_y - 70, "width": 140, "height": 140}))
 
                     if self.is_gold(cv2.cvtColor(snap, cv2.COLOR_BGRA2BGR)):
@@ -304,7 +299,6 @@ class Matrixassistant:
 
                         ocr_snap = np.array(sct.grab({"left": int(cur_win[0] + roi[0]), "top": int(cur_win[1] + roi[1]),
                                                       "width": int(roi[2]), "height": int(roi[3])}))
-
                         gray = cv2.cvtColor(cv2.cvtColor(ocr_snap, cv2.COLOR_BGRA2BGR), cv2.COLOR_BGR2GRAY)
                         scaled = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
                         _, binary = cv2.threshold(scaled, 150, 255, cv2.THRESH_BINARY_INV)
@@ -312,35 +306,26 @@ class Matrixassistant:
                         h, w = binary.shape
                         slice_h, full_txt, clean_list = h // 3, "", []
                         for i in range(3):
-                            y_start = max(0, i * slice_h)
-                            y_end = min(h, (i + 1) * slice_h)
-                            part = binary[y_start:y_end, :]
-
+                            part = binary[max(0, i * slice_h):min(h, (i + 1) * slice_h), :]
                             _, img_bytes = cv2.imencode('.png', part)
                             res = self.ocr.classification(img_bytes.tobytes())
                             if res:
                                 txt = self.clean_text(res)
-                                if txt:
-                                    clean_list.append(txt)
-                                    full_txt += txt
+                                if txt: clean_list.append(txt); full_txt += txt
 
                         if full_txt:
                             self.gui_log(f"识别结果: {'，'.join(clean_list)}", "green")
-
-                            is_matched = False
                             for weapon in self.weapon_list:
                                 if self.check_all_attributes(weapon, full_txt):
                                     self.gui_log("检测到毕业基质！", "gold")
                                     if self.is_already_locked(sct, lock, cur_win):
-                                        self.gui_log("该基质已锁定，跳过点击", "red")
+                                        self.gui_log("该基质已锁定，跳过", "red")
                                     else:
                                         pydirectinput.click(int(cur_win[0] + lock[0]), int(cur_win[1] + lock[1]))
                                         time.sleep(0.4)
-
                                     attrs_display = f"{weapon.get('毕业词条1', '')},{weapon.get('毕业词条2', '')},{weapon.get('毕业词条3', '')}"
-                                    self.add_to_lock_list(weapon['武器'], attrs_display,
-                                                          f"{current_row + 1}-{c + 1}", weapon.get('星级', '6'))
-                                    is_matched = True
+                                    self.add_to_lock_list(weapon['武器'], attrs_display, f"{current_row + 1}-{c + 1}",
+                                                          weapon.get('星级', '6'))
                                     break
                         else:
                             self.gui_log("-> 未读到有效词条")
@@ -352,19 +337,26 @@ class Matrixassistant:
                 if not self.running: break
                 current_row += 1
 
+                # --- 翻页逻辑：使用输入的固定像素值 ---
                 if current_row >= 5:
-                    self.gui_log(f"[系统] 第 {current_row} 行完成，执行精准拖拽对齐...", "black")
-                    drag_x = int(cur_win[0] + grid["rx"] + 4 * grid["rdx"])
-                    drag_y = int(cur_win[1] + grid["ry"] + 4 * grid["rdy"])
-                    pydirectinput.moveTo(drag_x, drag_y)
+                    self.gui_log(f"[翻页] 向上滑动 {move_pixel} 像素...", "black")
+                    cur_win = self.get_game_rect()
+                    # 以网格右下角区域为拖拽起点
+                    start_x = int(cur_win[0] + grid["rx"] + 4 * grid["rdx"])
+                    start_y = int(cur_win[1] + grid["ry"] + 4 * grid["rdy"])
+
+                    pydirectinput.moveTo(start_x, start_y)
                     time.sleep(0.2)
-                    move_dist = int(grid["rdy"] * 0.76)
                     pydirectinput.mouseDown()
-                    time.sleep(0.15)
-                    steps = 10
-                    for s in range(steps):
-                        pydirectinput.moveRel(0, -(move_dist // steps), relative=True)
+                    time.sleep(0.1)
+
+                    # 线性移动，步进固定
+                    steps = 15
+                    for s in range(steps + 1):
+                        current_y = int(start_y - (move_pixel * (s / steps)))
+                        pydirectinput.moveTo(start_x, current_y)
                         time.sleep(0.01)
+
                     pydirectinput.mouseUp()
                     time.sleep(1.5)
 
@@ -399,13 +391,12 @@ class Matrixassistant:
                 cv2.setWindowProperty(win_name, cv2.WND_PROP_TOPMOST, 1)
                 roi = cv2.selectROI(win_name, img_bgr, False)
                 cv2.destroyAllWindows()
-                cv2.waitKey(1)
                 if roi[2] > 0 and roi[3] > 0:
                     self.data["roi"] = [int(roi[0] - (rect[0] if rect else 0)), int(roi[1] - (rect[1] if rect else 0)),
                                         int(roi[2]), int(roi[3])]
                     self.save_config()
-        except Exception as e:
-            messagebox.showerror("运行错误", f"报错: {e}")
+        except:
+            pass
         finally:
             self.root.attributes("-topmost", True)
 
