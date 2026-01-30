@@ -16,6 +16,36 @@ import pygetwindow as gw
 import ctypes
 import threading
 import difflib
+import sys
+
+
+# --- 权限与窗口管理逻辑 ---
+
+def hide_console():
+    """隐藏控制台窗口"""
+    whnd = ctypes.windll.kernel32.GetConsoleWindow()
+    if whnd != 0:
+        # SW_HIDE = 0
+        ctypes.windll.user32.ShowWindow(whnd, 0)
+        ctypes.windll.kernel32.FreeConsole()
+
+
+def run_as_admin():
+    """强制请求管理员权限启动"""
+    try:
+        if ctypes.windll.shell32.IsUserAnAdmin():
+            return True
+        else:
+            executable = sys.executable
+            # 如果是 python.exe 运行，提权时尝试换成 pythonw.exe 以消除黑框
+            if executable.endswith("python.exe"):
+                executable = executable.replace("python.exe", "pythonw.exe")
+
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", executable, __file__, None, 1)
+            return False
+    except:
+        return False
+
 
 # 适配高分屏，防止坐标偏移
 try:
@@ -30,7 +60,7 @@ pyautogui.FAILSAFE = False
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别助手beta v0.1")
+        self.root.title("毕业基质自动识别助手beta v0.2")
         self.root.geometry("540x820")
         self.root.attributes("-topmost", True)
 
@@ -46,7 +76,7 @@ class Matrixassistant:
         self.data = self.load_config()
         self.weapon_list = self.load_weapon_csv()
 
-        # --- UI 顶部栏：状态与速度输入框 ---
+        # --- UI 顶部栏 ---
         top_frame = tk.Frame(root)
         top_frame.pack(anchor="nw", padx=10, pady=5)
 
@@ -67,7 +97,6 @@ class Matrixassistant:
                                  width=15, height=1)
         self.run_btn.pack(pady=10)
 
-        # UI 上的停止提示
         tk.Label(root, text="( 随时按 'B' 键强制停止扫描 )", font=("微软雅黑", 9), fg="#666666").pack()
 
         btn_frame = tk.Frame(root)
@@ -110,7 +139,7 @@ class Matrixassistant:
         if not all(self.data.get(k) is not None for k in ["roi", "grid", "lock"]):
             messagebox.showwarning("提示", "请先完成初始化配置")
             return
-        self.save_config()  # 启动前保存速度
+        self.save_config()
         self.log_area.delete('1.0', tk.END)
         self.lock_list_area.delete('1.0', tk.END)
         self.gui_log("[系统] 扫描启动，按 'B' 键可停止", "blue")
@@ -143,7 +172,7 @@ class Matrixassistant:
         if os.path.exists(self.csv_file):
             try:
                 with open(self.csv_file, 'r', encoding='utf-8') as f:
-                    reader = csv.DictReader(f);
+                    reader = csv.DictReader(f)
                     [weapons.append(row) for row in reader]
             except:
                 pass
@@ -182,12 +211,15 @@ class Matrixassistant:
     def clean_text(self, raw_text):
         if not raw_text: return ""
         txt = re.sub(r'[^\u4e00-\u9fa5]', '', str(raw_text))
-        if "辐" in txt or "撮" in txt: txt = txt.replace("辐", "力量").replace("撮", "力量")
-        if "政" in txt: txt = txt.replace("政", "攻")
-        if "美" in txt: txt = txt.replace("美", "主")
-        if "丑" in txt: txt = txt.replace("丑", "升")
-        if "装" in txt: txt = txt.replace("装", "袭")
-        if "失" in txt: txt = txt.replace("失", "生")
+        # 内部纠错字典
+        char_map = {
+            "玫": "攻", "政": "攻", "放": "攻", "效": "攻",
+            "燥": "爆", "曝": "爆", "瀑": "爆",
+            "辐": "力量", "撮": "力量",
+            "美": "主", "丑": "升", "装": "袭", "失": "生", "为": "力"
+        }
+        for wrong, right in char_map.items():
+            txt = txt.replace(wrong, right)
         return txt
 
     def fuzzy_match(self, target, text):
@@ -200,16 +232,11 @@ class Matrixassistant:
     def is_gold(self, cell_bgr):
         try:
             h, w = cell_bgr.shape[:2]
-            # --- 优化：扩大采样区，从底部 10% 扩大到底部 30% ---
             strip = cell_bgr[int(h * 0.70):, :]
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
-
-            # --- 优化：放宽金色判定范围 ---
             lower_gold = np.array([15, 100, 100])
             upper_gold = np.array([35, 255, 255])
             mask = cv2.inRange(hsv, lower_gold, upper_gold)
-
-            # 只要该区域内有超过 6% 的金色像素，即视为金色格子（应对点偏的情况）
             return (np.sum(mask > 0) / mask.size) > 0.06
         except:
             return False
@@ -241,15 +268,22 @@ class Matrixassistant:
 
                         ocr_snap = np.array(sct.grab({"left": int(cur_win[0] + roi[0]), "top": int(cur_win[1] + roi[1]),
                                                       "width": int(roi[2]), "height": int(roi[3])}))
+
+                        # 1. 灰度化
                         gray = cv2.cvtColor(cv2.cvtColor(ocr_snap, cv2.COLOR_BGRA2BGR), cv2.COLOR_BGR2GRAY)
-                        scaled = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-                        inverted = cv2.adaptiveThreshold(scaled, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                         cv2.THRESH_BINARY_INV, 15, 10)
-                        h, w = inverted.shape
+                        # 2. 缩放倍数 2.0
+                        scaled = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                        # 3. 手动阈值 150 + 反转颜色
+                        _, binary = cv2.threshold(scaled, 150, 255, cv2.THRESH_BINARY_INV)
+
+                        h, w = binary.shape
                         slice_h, full_txt, clean_list = h // 3, "", []
                         for i in range(3):
-                            _, img_bytes = cv2.imencode('.png',
-                                                        inverted[max(0, i * slice_h):min(h, (i + 1) * slice_h), :])
+                            y_start = max(0, i * slice_h)
+                            y_end = min(h, (i + 1) * slice_h)
+                            part = binary[y_start:y_end, :]
+
+                            _, img_bytes = cv2.imencode('.png', part)
                             res = self.ocr.classification(img_bytes.tobytes())
                             if res:
                                 txt = self.clean_text(res)
@@ -260,7 +294,7 @@ class Matrixassistant:
                             for weapon in self.weapon_list:
                                 c1, c2, c3 = weapon.get('毕业词条1', ''), weapon.get('毕业词条2', ''), weapon.get(
                                     '毕业词条3', '')
-                                if all(self.fuzzy_match(cx, full_txt) for cx in [c1, c2, c3]):
+                                if all(self.fuzzy_match(cx, full_txt) for cx in [c1, c2, c3] if cx):
                                     self.gui_log("检测到毕业基质！", "gold")
                                     if self.is_already_locked(sct, lock, cur_win):
                                         self.gui_log("该基质已锁定，跳过点击", "red")
@@ -274,39 +308,25 @@ class Matrixassistant:
                             self.gui_log("-> 未读到词条")
                     else:
                         self.gui_log(f"非金色基质，停止扫描")
-                        self.running = False;
+                        self.running = False
                         break
 
                 if not self.running: break
                 current_row += 1
 
-                # --- 1080p 翻页逻辑：分步模拟拖拽 ---
                 if current_row >= 5:
                     self.gui_log(f"[系统] 第 {current_row} 行完成，执行精准拖拽对齐...", "black")
                     drag_x = int(cur_win[0] + grid["rx"] + 4 * grid["rdx"])
                     drag_y = int(cur_win[1] + grid["ry"] + 4 * grid["rdy"])
-
                     pydirectinput.moveTo(drag_x, drag_y)
                     time.sleep(0.2)
-
-                    coeff = 0.76 if current_row == 5 else 0.76
-                    move_dist = int(grid["rdy"] * coeff)
-
+                    move_dist = int(grid["rdy"] * 0.76)
                     pydirectinput.mouseDown()
                     time.sleep(0.15)
-
                     steps = 10
-                    moved_so_far = 0
                     for s in range(steps):
-                        step_dist = move_dist // steps
-                        pydirectinput.moveRel(0, -step_dist, relative=True)
-                        moved_so_far += step_dist
+                        pydirectinput.moveRel(0, -(move_dist // steps), relative=True)
                         time.sleep(0.01)
-
-                    if moved_so_far < move_dist:
-                        pydirectinput.moveRel(0, -(move_dist - moved_so_far), relative=True)
-
-                    time.sleep(0.15)
                     pydirectinput.mouseUp()
                     time.sleep(1.5)
 
@@ -356,6 +376,10 @@ class Matrixassistant:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = Matrixassistant(root);
-    root.mainloop()
+    if run_as_admin():
+        hide_console()  # 只有成功以管理员运行后才尝试隐藏控制台
+        root = tk.Tk()
+        app = Matrixassistant(root)
+        root.mainloop()
+    else:
+        sys.exit()
