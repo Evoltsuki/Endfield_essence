@@ -25,7 +25,6 @@ def hide_console():
     """隐藏控制台窗口"""
     whnd = ctypes.windll.kernel32.GetConsoleWindow()
     if whnd != 0:
-        # SW_HIDE = 0
         ctypes.windll.user32.ShowWindow(whnd, 0)
         ctypes.windll.kernel32.FreeConsole()
 
@@ -46,7 +45,6 @@ def run_as_admin():
         return False
 
 
-# 适配高分屏，防止坐标偏移
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except:
@@ -59,11 +57,10 @@ pyautogui.FAILSAFE = False
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别助手beta v0.2 -by洁柔厨")
+        self.root.title("毕业基质自动识别助手beta v0.3")
         self.root.geometry("540x820")
         self.root.attributes("-topmost", True)
 
-        # 初始化 ddddocr
         try:
             self.ocr = ddddocr.DdddOcr(show_ad=False, beta=True)
         except Exception as e:
@@ -71,33 +68,27 @@ class Matrixassistant:
 
         self.config_file = "config.json"
         self.csv_file = "weapon_data.csv"
+        self.corrections_file = "corrections.json"
+
         self.running = False
         self.data = self.load_config()
         self.weapon_list = self.load_weapon_csv()
+        self.corrections = self.load_corrections()
 
-        # --- UI 顶部栏 ---
         top_frame = tk.Frame(root)
-        top_frame.pack(fill="x", padx=10, pady=5)  # 加上 fill="x" 确保撑满宽度
+        top_frame.pack(anchor="nw", padx=10, pady=5)
 
-        # 1. 左侧：配置状态
         self.top_status_var = tk.StringVar()
         self.update_config_status()
         tk.Label(top_frame, textvariable=self.top_status_var, font=("微软雅黑", 9), fg="green").pack(side="left")
 
-        # 2. 右侧：群号和免费声明 (关键点：先 pack 右边的元素)
-        group_info = "群号:1006580737 | 本工具完全免费"  # 这里换成你的群号
-        tk.Label(top_frame, text=group_info, font=("微软雅黑", 9, "bold"), fg="#1565C0").pack(side="right")
-
-        # 3. 中间：扫描速度（依然紧跟在左侧状态后面）
         initial_speed = self.data.get("speed", "0.3")
         self.speed_var = tk.StringVar(value=initial_speed)
-
-        tk.Label(top_frame, text=" | 速度:", font=("微软雅黑", 9)).pack(side="left", padx=(5, 0))
         self.speed_entry = tk.Entry(top_frame, textvariable=self.speed_var, width=5)
-        self.speed_entry.pack(side="left", padx=2)
-        tk.Label(top_frame, text="秒", font=("微软雅黑", 9)).pack(side="left")
+        self.speed_entry.pack(side="left", padx=(10, 2))
 
-        # 运行按钮
+        tk.Label(top_frame, text="扫描速度(秒)，推荐0.3-0.5", font=("微软雅黑", 9)).pack(side="left")
+
         self.run_btn = tk.Button(root, text="▶ 开始自动扫描", command=self.start_thread,
                                  bg="#2E7D32", fg="white", font=("微软雅黑", 12, "bold"),
                                  width=15, height=1)
@@ -132,6 +123,15 @@ class Matrixassistant:
         self.kb = keyboard.Listener(on_press=self.on_press)
         self.kb.start()
 
+    def load_corrections(self):
+        if os.path.exists(self.corrections_file):
+            try:
+                with open(self.corrections_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                pass
+        return {}
+
     def is_already_locked(self, sct, lock_pos, win_rect):
         try:
             abs_x, abs_y = int(win_rect[0] + lock_pos[0]), int(win_rect[1] + lock_pos[1])
@@ -146,6 +146,7 @@ class Matrixassistant:
             messagebox.showwarning("提示", "请先完成初始化配置")
             return
         self.save_config()
+        self.corrections = self.load_corrections()
         self.log_area.delete('1.0', tk.END)
         self.lock_list_area.delete('1.0', tk.END)
         self.gui_log("[系统] 扫描启动，按 'B' 键可停止", "blue")
@@ -177,7 +178,6 @@ class Matrixassistant:
         weapons = []
         if os.path.exists(self.csv_file):
             try:
-                # 使用 utf-8-sig 处理可能的 BOM 报头
                 with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
                     reader = csv.DictReader(f)
                     for row in reader:
@@ -220,47 +220,15 @@ class Matrixassistant:
     def clean_text(self, raw_text):
         if not raw_text: return ""
         txt = re.sub(r'[^\u4e00-\u9fa5]', '', str(raw_text))
-        # 内部纠错字典：针对游戏词条全方位防御
-        char_map = {
-            "玫": "攻", "政": "攻", "放": "攻", "公": "攻",
-            "绞": "效", "校": "效", "郊": "效",
-            "串": "率", "卒": "率", "律": "率",
-            "辐": "力量", "撮": "力量", "帚": "量", "是": "量", "最": "量", "刀": "力", "品":"量",
-            "厚": "源", "原": "源",
-            "木": "术", "禾": "术",
-            "美": "主", "王": "主", "玉": "主", "住": "主",
-            "丑": "升", "开": "升", "井": "升",
-            "装": "袭", "西": "袭", "席": "袭",
-            "失": "生", "牛": "生",
-            "谈": "识", "职": "识", "只": "识", "式": "识",
-            "嘉": "幕", "寞": "幕", "慕": "幕", "暮": "幕",
-            "统": "终", "中": "终", "钟": "终",
-            "进": "迸", "拼": "迸", "并": "迸",
-            "燥": "爆", "曝": "爆", "瀑": "爆",
-            "令": "冷", "玲": "冷",
-            "烈": "热", "列": "热",
-            "田": "电", "由": "电",
-            "沄": "法", "去": "法",
-            "勿": "物", "匆": "物",
-            "庄": "压", "厓": "压",
-            "辽": "疗", "了": "疗",
-            "冶": "治", "台": "治",
-            "白": "自", "目": "自",
-            "卬": "昂", "仰": "昂",
-            "亏": "巧",
-            "粹": "碎", "翠": "碎",
-            "迫": "追", "椎": "追",
-            "兹": "磁", "慈": "磁"
-        }
-        for wrong, right in char_map.items():
-            txt = txt.replace(wrong, right)
+        if self.corrections:
+            for wrong, right in self.corrections.items():
+                txt = txt.replace(wrong, right)
         return txt
 
     def check_all_attributes(self, weapon, ocr_full_text):
         """
-        核心判定逻辑：分段校验。
-        确保 CSV 里的每一个非空词条都能在 OCR 结果中找到较高的局部相似度。
-        这能有效解决“长词稀释短词”导致的误锁问题。
+        核心逻辑优化：滑动窗口匹配。
+        防止长词条干扰短词条判定。
         """
         c1 = self.clean_text(weapon.get('毕业词条1', ''))
         c2 = self.clean_text(weapon.get('毕业词条2', ''))
@@ -269,24 +237,33 @@ class Matrixassistant:
         targets = [t for t in [c1, c2, c3] if t]
         if not targets: return False
 
-        # 1. 逐个词条进行局部相似度检查
         for t in targets:
-            # 直接包含判定
+            # 1. 包含判定
             if t in ocr_full_text:
                 continue
 
-            # 模糊相似度判定 (针对单个词条)
-            ratio = difflib.SequenceMatcher(None, t, ocr_full_text).ratio()
+            # 2. 精准滑动窗口比对
+            # 取词条长度为窗口大小，在OCR结果中滑动，寻找最相似的片段
+            best_match_ratio = 0
+            t_len = len(t)
 
-            # 动态阈值：长词（含“提升”）要求 0.45 即可，短词要求 0.6
-            limit = 0.45 if len(t) > 2 else 0.60
-            if ratio < limit:
+            # 如果OCR结果比词条还短，直接算整体比例
+            if len(ocr_full_text) <= t_len:
+                best_match_ratio = difflib.SequenceMatcher(None, t, ocr_full_text).ratio()
+            else:
+                # 滑动窗口查找
+                for i in range(len(ocr_full_text) - t_len + 1):
+                    window_text = ocr_full_text[i:i + t_len]
+                    ratio = difflib.SequenceMatcher(None, t, window_text).ratio()
+                    if ratio > best_match_ratio:
+                        best_match_ratio = ratio
+
+            # 提高判定门槛：长词(如XX提升)要求 0.8，短词要求 0.85
+            limit = 0.80 if t_len > 2 else 0.85
+            if best_match_ratio < limit:
                 return False
 
-        # 2. 整体拼接字符串再次校验比例，防止极端干扰
-        full_target = "".join(targets)
-        overall_ratio = difflib.SequenceMatcher(None, full_target, ocr_full_text).ratio()
-        return overall_ratio >= 0.65
+        return True
 
     def is_gold(self, cell_bgr):
         try:
@@ -375,9 +352,8 @@ class Matrixassistant:
                 if not self.running: break
                 current_row += 1
 
-                # 翻页对齐逻辑
                 if current_row >= 5:
-                    self.gui_log(f"[翻页] 第 {current_row} 行完成，执行滚动对齐...", "black")
+                    self.gui_log(f"[系统] 第 {current_row} 行完成，执行精准拖拽对齐...", "black")
                     drag_x = int(cur_win[0] + grid["rx"] + 4 * grid["rdx"])
                     drag_y = int(cur_win[1] + grid["ry"] + 4 * grid["rdy"])
                     pydirectinput.moveTo(drag_x, drag_y)
@@ -412,14 +388,26 @@ class Matrixassistant:
 
     def set_roi(self):
         rect = self.get_game_rect()
-        with mss.mss() as sct:
-            img = np.array(sct.grab(sct.monitors[0]))
-            roi = cv2.selectROI("SELECT_ROI", cv2.cvtColor(img, cv2.COLOR_BGRA2BGR), False)
-            cv2.destroyAllWindows()
-            if roi[2] > 0:
-                self.data["roi"] = [int(roi[0] - (rect[0] if rect else 0)), int(roi[1] - (rect[1] if rect else 0)),
-                                    int(roi[2]), int(roi[3])]
-                self.save_config()
+        self.root.attributes("-topmost", False)
+        try:
+            with mss.mss() as sct:
+                monitor = sct.monitors[0]
+                img = np.array(sct.grab(monitor))
+                img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                win_name = "SELECT_ROI"
+                cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+                cv2.setWindowProperty(win_name, cv2.WND_PROP_TOPMOST, 1)
+                roi = cv2.selectROI(win_name, img_bgr, False)
+                cv2.destroyAllWindows()
+                cv2.waitKey(1)
+                if roi[2] > 0 and roi[3] > 0:
+                    self.data["roi"] = [int(roi[0] - (rect[0] if rect else 0)), int(roi[1] - (rect[1] if rect else 0)),
+                                        int(roi[2]), int(roi[3])]
+                    self.save_config()
+        except Exception as e:
+            messagebox.showerror("运行错误", f"报错: {e}")
+        finally:
+            self.root.attributes("-topmost", True)
 
     def set_grid(self):
         def p3(rx, ry):
