@@ -29,7 +29,7 @@ git clone [项目地址]
 cd [项目目录]
 
 # 安装依赖
-pip install opencv-python numpy pydirectinput pyautogui mss ddddocr pynput pyget
+pip install -r requirements.txt
 ```
 
 
