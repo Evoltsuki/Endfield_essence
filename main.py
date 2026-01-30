@@ -19,6 +19,10 @@ import threading
 import difflib
 import sys
 
+# --- 跨屏幕/超宽屏坐标修复类 ---
+class RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_int), ("top", ctypes.c_int),
+                ("right", ctypes.c_int), ("bottom", ctypes.c_int)]
 
 # --- 权限与窗口管理逻辑 ---
 
@@ -46,7 +50,8 @@ def run_as_admin():
 
 
 try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    # 修复：设置为 2 (Per Monitor DPI Aware)，解决多屏幕缩放不一致导致的坐标错位
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except:
     ctypes.windll.user32.SetProcessDPIAware()
 
@@ -60,6 +65,7 @@ class SelectionCanvas:
     def __init__(self, root, img_name, callback):
         self.root = root
         self.callback = callback
+        # 修复：mss monitors[0] 是虚拟显示器（全屏幕集合），适合多屏覆盖
         self.mon = mss.mss().monitors[0]
 
         self.top = tk.Toplevel(root)
@@ -83,7 +89,7 @@ class SelectionCanvas:
             self.tk_img = ImageTk.PhotoImage(img)
 
             pw, ph = img.width, img.height
-            self.img_win.geometry(f"{pw}x{ph}+{(self.mon['width'] - pw) // 2}+{(self.mon['height'] - ph) // 2}")
+            self.img_win.geometry(f"{pw}x{ph}+{(self.mon['width'] - pw) // 2}+{self.mon['top'] + (self.mon['height'] - ph) // 2}")
             lbl = tk.Label(self.img_win, image=self.tk_img, bg="white", highlightthickness=0)
             lbl.image = self.tk_img  # 保持引用
             lbl.pack()
@@ -118,7 +124,8 @@ class SelectionCanvas:
         w, h = x2 - x1, y2 - y1
         self.close()
         if w > 10 and h > 10:
-            self.callback(x1, y1, w, h)
+            # 这里的坐标已经是基于全屏偏移的
+            self.callback(x1 + self.mon['left'], y1 + self.mon['top'], w, h)
 
     def close(self):
         if self.img_win and self.img_win.winfo_exists():
@@ -130,7 +137,7 @@ class SelectionCanvas:
 class Matrixassistant:
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别工具beta v1.0 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v1.2 -by洁柔厨")
         self.root.geometry("540x880")
         self.root.attributes("-topmost", True)
 
@@ -231,7 +238,7 @@ class Matrixassistant:
         self.kb = keyboard.Listener(on_press=self.on_press)
         self.kb.start()
 
-        # --- 【修复处】将信息显示重新创建并置于最顶层 ---
+        # --- 右侧信息标注 ---
         self.info_label = tk.Label(root, text="群号: 1006580737\n本工具完全免费",
                                    font=("微软雅黑", 9, "bold"), fg="#FF5722", justify="right")
         self.info_label.place(relx=1.0, x=-10, y=10, anchor="ne")
@@ -254,24 +261,29 @@ class Matrixassistant:
         def confirm():
             name, star = entries["name"].get().strip(), entries["star"].get().strip()
             c_vals = [entries["c1"].get().strip(), entries["c2"].get().strip(), entries["c3"].get().strip()]
-            if not name or not star or not c_vals[0]: messagebox.showwarning("提示", "必填项缺失"); return
-            if star not in ["5", "6"]: messagebox.showwarning("提示", "星级限5或6"); return
+            if not name or not star or not c_vals[0]: messagebox.showwarning("提示", "必填项缺失");
+            return
+            if star not in ["5", "6"]:
+                messagebox.showwarning("提示", "星级只能输入 5 或 6");
+                return
+
             save_star = f"{star}星"
             new_row = {"武器": name, "星级": save_star, "毕业词条1": c_vals[0], "毕业词条2": c_vals[1],
                        "毕业词条3": c_vals[2]}
             try:
+                file_exists = os.path.isfile(self.csv_file)
                 with open(self.csv_file, 'a', encoding='utf-8-sig', newline='') as f:
                     writer = csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"])
-                    if os.stat(self.csv_file).st_size == 0: writer.writeheader()
+                    if not file_exists: writer.writeheader()
                     writer.writerow(new_row)
-                self.weapon_list.append(new_row);
-                messagebox.showinfo("成功", f"武器 {name} 已添加");
+                self.weapon_list.append(new_row)
+                messagebox.showinfo("成功", f"武器 {name} 已添加")
                 popup.destroy()
             except Exception as e:
-                messagebox.showerror("错误", f"{e}")
+                messagebox.showerror("保存失败", f"错误: {e}")
 
-        tk.Button(popup, text="确认添加", command=confirm, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"),
-                  width=20).pack(pady=25)
+        tk.Button(popup, text="确认添加武器数据", command=confirm, bg="#2E7D32", fg="white",
+                  font=("微软雅黑", 10, "bold"), width=20).pack(pady=25)
 
     def add_correction_popup(self):
         popup = tk.Toplevel(self.root);
@@ -310,9 +322,9 @@ class Matrixassistant:
     def is_already_locked(self, sct, lock_pos, win_rect):
         try:
             abs_x, abs_y = int(win_rect[0] + lock_pos[0]), int(win_rect[1] + lock_pos[1])
-            lock_snap = np.array(sct.grab({"left": abs_x - 15, "top": abs_y - 15, "width": 30, "height": 30}))
+            lock_snap = np.array(sct.grab({"left": abs_x - 15, "top": abs_y - 15, "width": 40, "height": 40}))
             gray = cv2.cvtColor(cv2.cvtColor(lock_snap, cv2.COLOR_BGRA2BGR), cv2.COLOR_BGR2GRAY)
-            return np.mean(gray) < 120
+            return np.mean(gray) < 130
         except:
             return False
 
@@ -408,13 +420,16 @@ class Matrixassistant:
     def is_gold(self, cell_bgr):
         try:
             h, w = cell_bgr.shape[:2]
-            strip = cell_bgr[int(h * 0.90):, :]
+            # 修复：采样底部 15% 区域
+            strip = cell_bgr[int(h * 0.85):, :]
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
-            lower_gold = np.array([18, 150, 150])
-            upper_gold = np.array([30, 255, 255])
+            lower_gold = np.array([15, 100, 100])
+            upper_gold = np.array([35, 255, 255])
             mask = cv2.inRange(hsv, lower_gold, upper_gold)
-            return (np.sum(mask > 0) / mask.size) > 0.04
-        except: return False
+            gold_rate = np.sum(mask > 0) / mask.size
+            return gold_rate > 0.05
+        except Exception as e:
+            return False
 
     def run_task(self):
         roi, grid, lock = self.data["roi"], self.data["grid"], self.data["lock"]
@@ -424,7 +439,8 @@ class Matrixassistant:
             current_row = 0
             while self.running:
                 try:
-                    current_speed, move_pixel = float(self.speed_var.get()), int(float(self.dist_var.get()))
+                    current_speed = float(self.speed_var.get())
+                    move_pixel = int(float(self.dist_var.get()))
                     if move_pixel == 90: move_pixel = 91
                 except:
                     current_speed, move_pixel = 0.3, 200
@@ -461,7 +477,7 @@ class Matrixassistant:
                             self.gui_log(f"识别结果: {full_txt}", "green")
                             matches = [w for w in self.weapon_list if self.check_all_attributes(w, full_txt)]
 
-                            # --- 还原毕业输出 ---
+                            # --- 毕业输出 ---
                             if matches:
                                 self.gui_log("检测到毕业基质！", "gold")
                                 if self.is_already_locked(sct, lock, cur_win):
@@ -490,9 +506,22 @@ class Matrixassistant:
                     time.sleep(1.5)
         self.run_btn.config(state="normal", text="▶ 开始自动扫描")
 
+    # 修复：使用 DwmGetWindowAttribute 获取真实物理坐标，解决超宽屏/缩放导致的 8 像素偏移
     def get_game_rect(self):
-        wins = gw.getWindowsWithTitle('Endfield')
-        return (wins[0].left, wins[0].top) if wins else None
+        try:
+            wins = gw.getWindowsWithTitle('Endfield')
+            if not wins: return None
+            hwnd = wins[0]._hWnd
+            rect = RECT()
+            DWMWA_EXTENDED_FRAME_BOUNDS = 9
+            ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+                ctypes.byref(rect), ctypes.sizeof(rect)
+            )
+            return (rect.left, rect.top)
+        except:
+            # 降级方案
+            return (wins[0].left, wins[0].top) if wins else None
 
     def get_click(self, prompt, callback, img_name=None):
         rect = self.get_game_rect();
@@ -513,10 +542,12 @@ class Matrixassistant:
                 img.thumbnail((800, 600));
                 tk_img = ImageTk.PhotoImage(img)
                 pw, ph = img.width, img.height;
-                img_win.geometry(f"{pw}x{ph}+{(mon['width'] - pw) // 2}+{(mon['height'] - ph) // 2}")
+                img_win.geometry(f"{pw}x{ph}+{(mon['width'] - pw) // 2}+{mon['top'] + (mon['height'] - ph) // 2}")
+
                 lbl = tk.Label(img_win, image=tk_img, bg="white");
                 lbl.image = tk_img;
                 lbl.pack()
+
                 img_win.lift();
                 ov.lift();
                 img_win.lift()
@@ -524,7 +555,8 @@ class Matrixassistant:
         def on_click(e):
             if img_win: img_win.destroy()
             ov.destroy();
-            callback(e.x_root - (rect[0] if rect else 0), e.y_root - (rect[1] if rect else 0))
+            # 修复：加上全屏监控器的物理偏移坐标，确保点击位置正确
+            callback(e.x_root, e.y_root)
 
         ov.bind("<Button-1>", on_click);
         lbl_p = tk.Label(ov, text=prompt, font=("微软雅黑", 22, "bold"), fg="red", bg="white")
@@ -536,14 +568,20 @@ class Matrixassistant:
                         lambda x, y, w, h: [self.data.update({"matrix_size": (w, h)}), self.save_config()])
 
     def set_roi(self):
+        # 修复：计算相对于游戏窗口的绝对偏移
         SelectionCanvas(self.root, "guide_roi.png", lambda x, y, w, h: [self.data.update({"roi": (
             x - (self.get_game_rect()[0] if self.get_game_rect() else 0),
             y - (self.get_game_rect()[1] if self.get_game_rect() else 0), w, h)}), self.save_config()])
 
     def set_grid(self):
-        def p3(rx, ry): self.data["grid"]["rx"], self.data["grid"]["ry"] = self.data["grid"]["p11"]; self.data["grid"][
-            "rdx"], self.data["grid"]["rdy"] = self.data["grid"]["p12"][0] - rx, ry - self.data["grid"]["p11"][
-            1]; self.save_config()
+        # 修复：计算相对于游戏窗口的绝对坐标
+        def p3(rx, ry):
+            gx, gy = self.get_game_rect()
+            p11 = self.data["grid"]["p11"]
+            self.data["grid"]["rx"], self.data["grid"]["ry"] = p11[0] - gx, p11[1] - gy
+            self.data["grid"]["rdx"] = self.data["grid"]["p12"][0] - p11[0]
+            self.data["grid"]["rdy"] = ry - p11[1]
+            self.save_config()
 
         def p2(rx, ry): self.data["grid"]["p12"] = (rx, ry); self.get_click("点：(2, 1)中心", p3, "guide_grid.png")
 
@@ -552,8 +590,11 @@ class Matrixassistant:
         self.get_click("点：(1, 1)中心", p1, "guide_grid.png")
 
     def set_lock(self):
-        self.get_click("点击锁定图标", lambda rx, ry: [self.data.update({"lock": (rx, ry)}), self.save_config()],
-                       "guide_lock.png")
+        def save_lock(rx, ry):
+            gx, gy = self.get_game_rect()
+            self.data.update({"lock": (rx - gx, ry - gy)})
+            self.save_config()
+        self.get_click("点击锁定图标", save_lock, "guide_lock.png")
 
 
 if __name__ == "__main__":
