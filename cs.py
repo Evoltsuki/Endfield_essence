@@ -61,8 +61,10 @@ class SelectionCanvas:
     def __init__(self, root, img_name, callback):
         self.root = root
         self.callback = callback
-        # 获取所有显示器的联合区域（虚拟屏幕）
+        # 获取所有显示器的联合区域（虚拟屏幕）用于蒙版覆盖
         self.mon = mss.mss().monitors[0]
+        # 获取主显示器用于图片居中显示
+        self.primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else self.mon
 
         # 1. 创建全屏蒙版 (半透明)
         self.top = tk.Toplevel(root)
@@ -85,10 +87,10 @@ class SelectionCanvas:
             img.thumbnail((700, 500))
             self.tk_img = ImageTk.PhotoImage(img)
 
-            # --- 核心修复：精确计算居中坐标 ---
-            # 必须包含 self.mon['left'] 和 self.mon['top'] 才能在多显示器环境下正确居中
-            pos_x = self.mon['left'] + (self.mon['width'] - img.width) // 2
-            pos_y = self.mon['top'] + (self.mon['height'] - img.height) // 2
+            # --- 核心修复：使用主显示器坐标来居中图片 ---
+            # 使用 primary_mon 而非虚拟屏幕 mon，确保图片在主显示器上居中
+            pos_x = self.primary_mon['left'] + (self.primary_mon['width'] - img.width) // 2
+            pos_y = self.primary_mon['top'] + (self.primary_mon['height'] - img.height) // 2
 
             self.img_win.geometry(f"{img.width}x{img.height}+{pos_x}+{pos_y}")
             tk.Label(self.img_win, image=self.tk_img, bg="white", relief="solid", bd=2).pack()
@@ -417,6 +419,8 @@ class Matrixassistant:
     # --- 修复后的独立图层置顶方法 ---
     def get_click(self, p, cb, img_n=None):
         mon = mss.mss().monitors[0]
+        # 获取主显示器用于图片居中显示
+        primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else mon
         # 1. 蒙版窗口
         ov = tk.Toplevel(self.root)
         ov.attributes("-alpha", 0.6, "-topmost", True)
@@ -434,9 +438,9 @@ class Matrixassistant:
             pi.thumbnail((700, 500))
             tki = ImageTk.PhotoImage(pi)
 
-            # 修复：居中计算需要包含 mon['left'] 偏移量
-            pos_x = mon['left'] + (mon['width'] - pi.width) // 2
-            pos_y = mon['top'] + (mon['height'] - pi.height) // 2
+            # 修复：使用主显示器坐标来居中图片
+            pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
+            pos_y = primary_mon['top'] + (primary_mon['height'] - pi.height) // 2
             img_w.geometry(f"{pi.width}x{pi.height}+{pos_x}+{pos_y}")
 
             tk.Label(img_w, image=tki, bg="white", relief="solid", bd=2).pack()

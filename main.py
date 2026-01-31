@@ -64,18 +64,22 @@ class SelectionCanvas:
     def __init__(self, root, img_name, callback):
         self.root = root
         self.callback = callback
+        # 获取所有显示器的联合区域（虚拟屏幕）用于蒙版覆盖
         self.mon = mss.mss().monitors[0]
+        # 获取主显示器用于图片居中显示
+        self.primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else self.mon
 
-        # 1. 创建全屏蒙版
+        # 1. 创建全屏蒙版 (半透明)
         self.top = tk.Toplevel(root)
         self.top.attributes("-alpha", 0.6, "-topmost", True)
+        # 几何设置：宽度x高度+左偏移+上偏移
         self.top.geometry(f"{self.mon['width']}x{self.mon['height']}+{self.mon['left']}+{self.mon['top']}")
         self.top.overrideredirect(True)
         self.top.configure(bg="white")
         self.canvas = tk.Canvas(self.top, cursor="crosshair", bg="white", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
-        # 2. 创建独立教程图
+        # 2. 创建独立教程图 (修复坐标偏移)
         self.img_win = None
         img_path = resource_path(os.path.join("img", img_name))
         if os.path.exists(img_path):
@@ -86,9 +90,10 @@ class SelectionCanvas:
             img.thumbnail((700, 500))
             self.tk_img = ImageTk.PhotoImage(img)
 
-            # 核心修复：多显示器环境下居中
-            pos_x = self.mon['left'] + (self.mon['width'] - img.width) // 2
-            pos_y = self.mon['top'] + (self.mon['height'] - img.height) // 2
+            # --- 核心修复：使用主显示器坐标来居中图片 ---
+            # 使用 primary_mon 而非虚拟屏幕 mon，确保图片在主显示器上居中
+            pos_x = self.primary_mon['left'] + (self.primary_mon['width'] - img.width) // 2
+            pos_y = self.primary_mon['top'] + (self.primary_mon['height'] - img.height) // 2
 
             self.img_win.geometry(f"{img.width}x{img.height}+{pos_x}+{pos_y}")
             tk.Label(self.img_win, image=self.tk_img, bg="white", relief="solid", bd=2).pack()
@@ -332,6 +337,8 @@ class Matrixassistant:
 
     def get_click(self, p, cb, img_n=None):
         mon = mss.mss().monitors[0]
+        # 获取主显示器用于图片居中显示
+        primary_mon = mss.mss().monitors[1] if len(mss.mss().monitors) > 1 else mon
         ov = tk.Toplevel(self.root); ov.attributes("-alpha", 0.6, "-topmost", True)
         ov.geometry(f"{mon['width']}x{mon['height']}+{mon['left']}+{mon['top']}"); ov.overrideredirect(True); ov.configure(bg="white")
         img_w = None
@@ -340,8 +347,9 @@ class Matrixassistant:
             if os.path.exists(img_path):
                 img_w = tk.Toplevel(self.root); img_w.attributes("-topmost", True); img_w.overrideredirect(True)
                 pi = Image.open(img_path); pi.thumbnail((700, 500)); tki = ImageTk.PhotoImage(pi)
-                pos_x = mon['left'] + (mon['width'] - pi.width) // 2
-                pos_y = mon['top'] + (mon['height'] - pi.height) // 2
+                # 修复：使用主显示器坐标来居中图片
+                pos_x = primary_mon['left'] + (primary_mon['width'] - pi.width) // 2
+                pos_y = primary_mon['top'] + (primary_mon['height'] - pi.height) // 2
                 img_w.geometry(f"{pi.width}x{pi.height}+{pos_x}+{pos_y}")
                 tk.Label(img_w, image=tki, bg="white", relief="solid", bd=2).pack(); img_w.image = tki
                 self.root.after(50, lambda: img_w.lift())
