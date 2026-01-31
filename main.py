@@ -472,14 +472,14 @@ class Matrixassistant:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("毕业基质自动识别工具beta v1.5 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v1.6 -by洁柔厨")
         self.root.geometry("540x880")
         self.root.attributes("-topmost", True)
 
         # --- 核心修复：任务栏图标独立化 ---
         try:
             # 必须在加载图标前调用，确保 Windows 不会把程序归类到 Python 默认图标下
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jierouchu.matrix.assistant.v15")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("jierouchu.matrix.assistant.v16")
         except:
             pass
 
