@@ -1,4 +1,5 @@
 {
-    "speed": "0.2",
-    "skip_marked": false
+    "skip_marked": true,
+    "ignore_5star": true,
+    "debug_gold": false
 }

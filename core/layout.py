@@ -28,5 +28,9 @@ BASE_LAYOUT = {
 
     # 8. 翻页滑动距离 (Y轴滑动像素)
     "swipe_dist_first": 116,
-    "swipe_dist_next": 115
+    "swipe_dist_next": 115,
+
+    # 9. 尾扫 ROI (x, y, w, h)
+    "roi_row1": (18, 72, 956, 119),  # 仅限第一行，作为探测器
+    "roi_final": (18, 72, 956, 570) # 全局尾扫，包揽剩余屏幕
 }

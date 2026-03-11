@@ -63,7 +63,11 @@ class DeviceController:
 
             # 【核心修改点】：加入首行和后续滑动的独立缩放
             "swipe_dist_first": int(b["swipe_dist_first"] * sy),
-            "swipe_dist_next": int(b["swipe_dist_next"] * sy)
+            "swipe_dist_next": int(b["swipe_dist_next"] * sy),
+            "roi_row1": (int(b["roi_row1"][0] * sx), int(b["roi_row1"][1] * sy), int(b["roi_row1"][2] * sx),
+                         int(b["roi_row1"][3] * sy)),
+            "roi_final": (int(b["roi_final"][0] * sx), int(b["roi_final"][1] * sy), int(b["roi_final"][2] * sx),
+                          int(b["roi_final"][3] * sy))
         }
 
     def capture_window_bg(self, hwnd, res_w, res_h):

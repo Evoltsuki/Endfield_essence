@@ -10,28 +10,50 @@ class DataManager:
         self.csv_file = "data/weapon_data.csv"
         self.corrections_file = "data/Jiucuo.json"
 
+        # 确保 data 目录存在，防止写入时报错
+        os.makedirs("data", exist_ok=True)
+
         self.data = self.load_config()
         self.weapon_list = self.load_weapon_csv()
         self.corrections = self.load_corrections()
 
     def load_config(self):
+        # 定义三个开关的默认值
+        default_config = {
+            "skip_marked": False,
+            "ignore_5star": True,
+            "debug_gold": False
+        }
+
         if os.path.exists(self.config_file):
             try:
-                conf = json.load(open(self.config_file, 'r', encoding='utf-8'))
-                # 兼容旧配置，如果没有这个键就补上默认值
-                if "skip_marked" not in conf: conf["skip_marked"] = True
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    conf = json.load(f)
+
+                # 兼容机制：把已有的本地配置和默认配置合并
+                # 如果本地 json 缺了某个新加的键，就补上默认值
+                for k, v in default_config.items():
+                    if k not in conf:
+                        conf[k] = v
                 return conf
-            except:
+            except Exception:
                 pass
-        return {"speed": "0.2", "skip_marked": True}
+
+        # 如果文件不存在或读取失败，返回默认配置
+        return default_config
 
     def save_config(self):
-        # 确保保存当前 UI 上的开关状态
-        json.dump(self.data, open(self.config_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"保存配置失败: {e}")
 
     def load_corrections(self):
-        return json.load(open(self.corrections_file, 'r', encoding='utf-8')) if os.path.exists(
-            self.corrections_file) else {}
+        if os.path.exists(self.corrections_file):
+            with open(self.corrections_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
 
     def load_weapon_csv(self):
         ws = []
@@ -49,8 +71,6 @@ class DataManager:
             messagebox.showerror("读取失败", str(e))
         return ws
 
-    def save_config(self):
-        json.dump(self.data, open(self.config_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
-
     def save_corrections(self):
-        json.dump(self.corrections, open(self.corrections_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
+        with open(self.corrections_file, 'w', encoding='utf-8') as f:
+            json.dump(self.corrections, f, ensure_ascii=False, indent=4)

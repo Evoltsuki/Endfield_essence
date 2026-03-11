@@ -88,7 +88,7 @@ class VisionAnalyzer:
     def is_gold(self, bgr):
         try:
             h, w = bgr.shape[:2]
-            strip = bgr[int(h * 0.70):, :]
+            strip = bgr[int(h * 0.75):, :]
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([35, 255, 255]))
             return (np.sum(mask > 0) / mask.size) > 0.05
@@ -118,6 +118,69 @@ class VisionAnalyzer:
             return max_val > 0.85
         except:
             return False
+
+    def find_essences_with_mask(self, window_img, roi, scale_x, scale_y):
+        """MAA 级绿幕匹配引擎：支持识别带绿色掩膜的 EssenceGeneral.png"""
+        try:
+            template_path = resource_path(os.path.join("img", "EssenceGeneral.png"))
+            template_bgr = cv2.imread(template_path, cv2.IMREAD_COLOR)
+            if template_bgr is None:
+                return []
+
+            # 缩放模板以适配不同分辨率
+            if scale_x != 1.0 or scale_y != 1.0:
+                template_bgr = cv2.resize(template_bgr, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
+
+            # 提取绿色 Mask (纯绿 0, 255, 0)
+            # 在 OpenCV 的 BGR 格式中，绿色通道是 255
+            lower_green = np.array([0, 240, 0])
+            upper_green = np.array([10, 255, 10])
+            green_mask = cv2.inRange(template_bgr, lower_green, upper_green)
+
+            # 掩膜反转：绿色区域变0（忽略匹配），其余区域变255（严格匹配）
+            valid_mask = cv2.bitwise_not(green_mask)
+
+            rx, ry, rw, rh = roi
+            # 越界保护
+            sh, sw = window_img.shape[:2]
+            search_area = window_img[max(0, ry):min(sh, ry + rh), max(0, rx):min(sw, rx + rw)]
+
+            if search_area.shape[0] < template_bgr.shape[0] or search_area.shape[1] < template_bgr.shape[1]:
+                return []
+
+            # 使用 TM_CCORR_NORMED 算法，它完美支持 mask 参数
+            res = cv2.matchTemplate(search_area, template_bgr, cv2.TM_CCORR_NORMED, mask=valid_mask)
+
+            threshold = 0.90  # 绿幕匹配极度精准，阈值设高
+            loc = np.where(res >= threshold)
+
+            th, tw = template_bgr.shape[:2]
+            boxes = []
+            for pt in zip(*loc[::-1]):
+                boxes.append([pt[0] + rx, pt[1] + ry, pt[0] + rx + tw, pt[1] + ry + th])
+
+            # --- 非极大值抑制 (NMS) 去除重叠框 ---
+            boxes = sorted(boxes, key=lambda x: (x[1], x[0]))
+            final_boxes = []
+            for b in boxes:
+                cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
+                keep = True
+                for fb in final_boxes:
+                    fcx, fcy = (fb[0] + fb[2]) // 2, (fb[1] + fb[3]) // 2
+                    # 如果两个框的中心点距离太近，说明匹配到了同一个基质
+                    if abs(cx - fcx) < tw // 2 and abs(cy - fcy) < th // 2:
+                        keep = False
+                        break
+                if keep:
+                    final_boxes.append(b)
+
+            # 严格排序：从上到下，从左到右
+            final_boxes.sort(key=lambda b: (b[1] // (th // 2), b[0]))
+            return final_boxes
+
+        except Exception as e:
+            print(f"模板匹配出错: {e}")
+            return []
 
     def is_already_locked_bg(self, window_img, lock_pos, scale_x=1.0, scale_y=1.0):
         return self._template_match(window_img, lock_pos, "LockButtonLocked.png", scale_x, scale_y)

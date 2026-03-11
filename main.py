@@ -2,7 +2,6 @@ import sys
 import traceback
 import tkinter as tk
 from tkinter import messagebox
-
 from utils.sys_helper import run_as_admin, setup_dpi_awareness
 from utils.data_manager import DataManager
 from device.controller import DeviceController
