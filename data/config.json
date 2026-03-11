@@ -1,3 +1,4 @@
 {
-    "speed": "0.2"
+    "speed": "0.2",
+    "skip_marked": false
 }

@@ -17,11 +17,17 @@ class DataManager:
     def load_config(self):
         if os.path.exists(self.config_file):
             try:
-                return json.load(open(self.config_file, 'r', encoding='utf-8'))
+                conf = json.load(open(self.config_file, 'r', encoding='utf-8'))
+                # 兼容旧配置，如果没有这个键就补上默认值
+                if "skip_marked" not in conf: conf["skip_marked"] = True
+                return conf
             except:
                 pass
-        # 不再需要手动校准的数据，仅保留速度等基础设置
-        return {"speed": "0.2"}
+        return {"speed": "0.2", "skip_marked": True}
+
+    def save_config(self):
+        # 确保保存当前 UI 上的开关状态
+        json.dump(self.data, open(self.config_file, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
 
     def load_corrections(self):
         return json.load(open(self.corrections_file, 'r', encoding='utf-8')) if os.path.exists(

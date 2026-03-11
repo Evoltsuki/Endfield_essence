@@ -27,5 +27,6 @@ BASE_LAYOUT = {
     "swipe_start": (135, 191),
 
     # 8. 翻页滑动距离 (Y轴滑动像素)
-    "swipe_dist": 116
+    "swipe_dist_first": 116,
+    "swipe_dist_next": 115
 }

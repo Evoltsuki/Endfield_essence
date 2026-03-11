@@ -60,7 +60,10 @@ class DeviceController:
             "lock_btn": scale_pt(b["lock_btn"]),
             "discard_btn": scale_pt(b["discard_btn"]),
             "swipe_start": scale_pt(b["swipe_start"]),
-            "swipe_dist": int(b["swipe_dist"] * sy)
+
+            # 【核心修改点】：加入首行和后续滑动的独立缩放
+            "swipe_dist_first": int(b["swipe_dist_first"] * sy),
+            "swipe_dist_next": int(b["swipe_dist_next"] * sy)
         }
 
     def capture_window_bg(self, hwnd, res_w, res_h):
@@ -97,13 +100,13 @@ class DeviceController:
         time.sleep(0.05)
 
         # 增加插值步数，让滑动更平滑
-        steps = 20
+        steps = 30
         for s in range(steps):
             pydirectinput.moveTo(start_x, int(start_y - (distance * (s / steps))))
             time.sleep(0.01)
 
         # 【核心修正】：模拟 MAA 的 "end_hold: 1500" 来杀死游戏引擎的滑动惯性！
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         pydirectinput.mouseUp()
-        time.sleep(0.5)
+        time.sleep(0.1)
