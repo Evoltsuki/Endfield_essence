@@ -12,6 +12,7 @@ from core.layout import BASE_LAYOUT
 
 pydirectinput.PAUSE = 0.01
 pyautogui.FAILSAFE = False
+pydirectinput.FAILSAFE = False
 
 
 class DeviceController:
@@ -26,48 +27,61 @@ class DeviceController:
         pt = win32gui.ClientToScreen(hwnd, (0, 0))
         abs_x, abs_y = pt[0], pt[1]
 
+        # 【核心优化】：带鱼屏与异形屏自适应比例计算
+        base_w, base_h = 1280.0, 720.0
+        # 获取最小缩放比，保证 UI 等比缩放
+        ui_scale = min(res_w / base_w, res_h / base_h)
+
+        # 计算为了保持 16:9 居中，X轴或Y轴产生的黑边/FOV偏移量
+        offset_x = (res_w - base_w * ui_scale) / 2.0
+        offset_y = (res_h - base_h * ui_scale) / 2.0
+
         return {
             "hwnd": hwnd,
             "res_w": res_w,
             "res_h": res_h,
             "abs_x": abs_x,
             "abs_y": abs_y,
-            "scale_x": res_w / 1280.0,
-            "scale_y": res_h / 720.0
+            "ui_scale": ui_scale,
+            "offset_x": offset_x,
+            "offset_y": offset_y
         }
 
     def get_scaled_layout(self):
         env = self.get_window_env()
         if not env: return None
 
-        sx, sy = env["scale_x"], env["scale_y"]
+        scale = env["ui_scale"]
+        ox, oy = env["offset_x"], env["offset_y"]
         abs_x, abs_y = env["abs_x"], env["abs_y"]
 
         def scale_pt(pt):
-            return (int(abs_x + pt[0] * sx), int(abs_y + pt[1] * sy))
+            # 转换为屏幕绝对坐标：基础偏移 + 居中偏移 + 缩放后的UI坐标
+            return (int(abs_x + ox + pt[0] * scale), int(abs_y + oy + pt[1] * scale))
 
         def scale_size(size):
-            return (int(size[0] * sx), int(size[1] * sy))
+            return (int(size[0] * scale), int(size[1] * scale))
+
+        def scale_rect(rect):
+            # 转换为截图内部的相对坐标：居中偏移 + 缩放后的UI坐标
+            return (int(ox + rect[0] * scale), int(oy + rect[1] * scale),
+                    int(rect[2] * scale), int(rect[3] * scale))
 
         b = BASE_LAYOUT
         return {
             "env": env,
             "grid_p11": scale_pt(b["grid_p11"]),
-            "grid_dx": int(b["grid_delta"][0] * sx),
-            "grid_dy": int(b["grid_delta"][1] * sy),
+            "grid_dx": int(b["grid_delta"][0] * scale),
+            "grid_dy": int(b["grid_delta"][1] * scale),
             "matrix_size": scale_size(b["matrix_size"]),
-            "roi": (int(b["roi"][0] * sx), int(b["roi"][1] * sy), int(b["roi"][2] * sx), int(b["roi"][3] * sy)),
+            "roi": scale_rect(b["roi"]),
             "lock_btn": scale_pt(b["lock_btn"]),
             "discard_btn": scale_pt(b["discard_btn"]),
             "swipe_start": scale_pt(b["swipe_start"]),
-
-            # 【核心修改点】：加入首行和后续滑动的独立缩放
-            "swipe_dist_first": int(b["swipe_dist_first"] * sy),
-            "swipe_dist_next": int(b["swipe_dist_next"] * sy),
-            "roi_row1": (int(b["roi_row1"][0] * sx), int(b["roi_row1"][1] * sy), int(b["roi_row1"][2] * sx),
-                         int(b["roi_row1"][3] * sy)),
-            "roi_final": (int(b["roi_final"][0] * sx), int(b["roi_final"][1] * sy), int(b["roi_final"][2] * sx),
-                          int(b["roi_final"][3] * sy))
+            "swipe_dist_first": int(b["swipe_dist_first"] * scale),
+            "swipe_dist_next": int(b["swipe_dist_next"] * scale),
+            "roi_row1": scale_rect(b["roi_row1"]),
+            "roi_final": scale_rect(b["roi_final"])
         }
 
     def capture_window_bg(self, hwnd, res_w, res_h):
@@ -98,19 +112,13 @@ class DeviceController:
         pydirectinput.moveRel(x_offset, y_offset)
 
     def swipe_up(self, start_x, start_y, distance):
-        """带有 MAA 级别防惯性刹车机制的拖拽算法"""
         pydirectinput.moveTo(start_x, start_y)
         pydirectinput.mouseDown()
         time.sleep(0.05)
-
-        # 增加插值步数，让滑动更平滑
         steps = 30
         for s in range(steps):
             pydirectinput.moveTo(start_x, int(start_y - (distance * (s / steps))))
             time.sleep(0.01)
-
-        # 【核心修正】：模拟 MAA 的 "end_hold: 1500" 来杀死游戏引擎的滑动惯性！
         time.sleep(0.5)
-
         pydirectinput.mouseUp()
         time.sleep(0.1)

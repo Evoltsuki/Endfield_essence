@@ -18,11 +18,13 @@ class DataManager:
         self.corrections = self.load_corrections()
 
     def load_config(self):
-        # 定义三个开关的默认值
+        # 定义开关和窗口坐标的默认值
         default_config = {
             "skip_marked": False,
             "ignore_5star": True,
-            "debug_gold": False
+            "debug_gold": False,
+            "window_x": None,  # 新增：主窗口X坐标
+            "window_y": None   # 新增：主窗口Y坐标
         }
 
         if os.path.exists(self.config_file):
@@ -31,7 +33,6 @@ class DataManager:
                     conf = json.load(f)
 
                 # 兼容机制：把已有的本地配置和默认配置合并
-                # 如果本地 json 缺了某个新加的键，就补上默认值
                 for k, v in default_config.items():
                     if k not in conf:
                         conf[k] = v
@@ -39,7 +40,6 @@ class DataManager:
             except Exception:
                 pass
 
-        # 如果文件不存在或读取失败，返回默认配置
         return default_config
 
     def save_config(self):

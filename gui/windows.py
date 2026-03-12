@@ -1,13 +1,32 @@
 import csv
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import ttk
+
 
 def show_add_correction_popup(root, dm):
-    """显示错字纠正弹窗"""
+    """显示错字纠正弹窗（相对主界面居中）"""
     p = tk.Toplevel(root)
     p.title("错字纠正")
-    p.geometry("300x180")
     p.attributes("-topmost", True)
+
+    # 设定大小并强制刷新获取真实尺寸
+    w, h = 300, 180
+    p.geometry(f"{w}x{h}")
+    p.update_idletasks()
+    root.update_idletasks()
+
+    # 计算主窗口的坐标和大小
+    root_x = root.winfo_rootx()
+    root_y = root.winfo_rooty()
+    root_w = root.winfo_width()
+    root_h = root.winfo_height()
+
+    # 计算弹窗居中的坐标
+    x = root_x + (root_w - w) // 2
+    y = root_y + (root_h - h) // 2
+    p.geometry(f"{w}x{h}+{x}+{y}")
+
     w_ent, r_ent = tk.Entry(p, width=15), tk.Entry(p, width=15)
     tk.Label(p, text="错误文字").grid(row=0, column=0, padx=10, pady=10)
     tk.Label(p, text="正确文字").grid(row=0, column=1, padx=10, pady=10)
@@ -15,29 +34,45 @@ def show_add_correction_popup(root, dm):
     r_ent.grid(row=1, column=1, padx=10, pady=5)
 
     def confirm():
-        w, r = w_ent.get().strip(), r_ent.get().strip()
-        if w and r:
-            dm.corrections[w] = r
+        w_text, r_text = w_ent.get().strip(), r_ent.get().strip()
+        if w_text and r_text:
+            dm.corrections[w_text] = r_text
             dm.save_corrections()
             p.destroy()
 
-    tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0, columnspan=2, pady=20)
+    tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0,
+                                                                                            columnspan=2, pady=20)
+
 
 def show_weapon_editor_popup(root, dm):
-    """显示武器编辑大窗口"""
+    """显示武器编辑大窗口（屏幕居中）"""
     editor_win = tk.Toplevel(root)
     editor_win.title("武器数据编辑器")
-    editor_win.geometry("900x650")
-    editor_win.minsize(1150, 500)
+    editor_win.minsize(1200, 500)
     editor_win.attributes("-topmost", True)
+
+    # 屏幕居中算法
+    w, h = 900, 650
+    editor_win.update_idletasks()
+    sw = editor_win.winfo_screenwidth()
+    sh = editor_win.winfo_screenheight()
+    x = (sw - w) // 2
+    y = (sh - h) // 2
+    editor_win.geometry(f"{w}x{h}+{x}+{y}")
 
     top_bar = tk.Frame(editor_win)
     top_bar.pack(fill="x", padx=10, pady=5)
 
     search_frame = tk.Frame(top_bar, pady=10)
     search_frame.pack(side="bottom", fill="x")
-    tk.Label(search_frame, text="搜索武器:", font=("微软雅黑", 10, "bold")).pack(side="left", padx=(0, 5))
 
+    tk.Label(search_frame, text="星级筛选:", font=("微软雅黑", 10, "bold")).pack(side="left", padx=(0, 5))
+    star_var = tk.StringVar(value="全部")
+    star_cb = ttk.Combobox(search_frame, textvariable=star_var, values=["全部", "6星", "5星"], width=6,
+                           state="readonly")
+    star_cb.pack(side="left", padx=(0, 15))
+
+    tk.Label(search_frame, text="搜索武器或词条:", font=("微软雅黑", 10, "bold")).pack(side="left", padx=(0, 5))
     search_var = tk.StringVar()
     search_ent = tk.Entry(search_frame, textvariable=search_var, font=("微软雅黑", 10), width=30)
     search_ent.pack(side="left")
@@ -69,48 +104,124 @@ def show_weapon_editor_popup(root, dm):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    headers = ["武器名称", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "管理操作"]
-    header_widths = [20, 10, 18, 18, 18, 10]
-    for i, h in enumerate(headers):
-        tk.Label(scrollable_frame, text=h, font=("微软雅黑", 10, "bold"), width=header_widths[i]).grid(row=0, column=i, padx=2, pady=5)
-
+    # 增加全选框表头
     table_rows = []
+    select_all_var = tk.BooleanVar(scrollable_frame)
+
+    def toggle_select_all():
+        """全选/取消全选联动"""
+        state = select_all_var.get()
+        for row in table_rows:
+            # 仅对当前搜索可见的行进行操作
+            if row[1].winfo_ismapped():
+                row[0].set(state)
+
+    headers = ["全选", "武器名称", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "管理操作"]
+    header_widths = [5, 20, 10, 18, 18, 18, 10]
+
+    for i, h in enumerate(headers):
+        if i == 0:
+            chk = tk.Checkbutton(scrollable_frame, text=h, variable=select_all_var, command=toggle_select_all,
+                                 font=("微软雅黑", 9, "bold"))
+            chk.grid(row=0, column=i, padx=2, pady=5)
+        else:
+            tk.Label(scrollable_frame, text=h, font=("微软雅黑", 10, "bold"), width=header_widths[i]).grid(row=0,
+                                                                                                           column=i,
+                                                                                                           padx=2,
+                                                                                                           pady=5)
+
+    row_indices = {"new": 999, "existing": 1000}
 
     def do_search(*args):
         query = search_var.get().strip().lower()
+        star_filter = star_var.get()
+
         for row_list in table_rows:
-            weapon_name = row_list[0].get().strip().lower()
-            if query in weapon_name:
-                for widget in row_list: widget.grid()
-            else:
-                for widget in row_list: widget.grid_remove()
+            try:
+                # 索引 0 是 BooleanVar，索引 1 是选择框，后面的才是具体数据组件
+                w_name = row_list[2].get().strip().lower()
+                w_star = row_list[3].get().strip()
+                w_a1 = row_list[4].get().strip().lower()
+                w_a2 = row_list[5].get().strip().lower()
+                w_a3 = row_list[6].get().strip().lower()
+
+                match_star = (star_filter == "全部") or (star_filter in w_star)
+                match_query = (not query) or (query in w_name) or (query in w_a1) or (query in w_a2) or (query in w_a3)
+
+                if match_star and match_query:
+                    # 从索引 1 开始都是 Widget 组件，执行 grid() 显示
+                    for widget in row_list[1:]: widget.grid()
+                else:
+                    for widget in row_list[1:]: widget.grid_remove()
+            except:
+                pass
 
     search_var.trace_add("write", do_search)
+    star_cb.bind("<<ComboboxSelected>>", lambda e: do_search())
 
-    def add_row_ui(data=None):
-        row_idx = len(table_rows) + 1
+    def add_row_ui(data=None, is_new=False):
+        if is_new:
+            row_idx = row_indices["new"]
+            row_indices["new"] -= 1
+        else:
+            row_idx = row_indices["existing"]
+            row_indices["existing"] += 1
+
         row_widgets = []
-        default_vals = data if data else {"武器": "", "星级": "", "毕业词条1": "", "毕业词条2": "", "毕业词条3": ""}
+
+        # 加入选择框
+        chk_var = tk.BooleanVar(scrollable_frame)
+        chk = tk.Checkbutton(scrollable_frame, variable=chk_var)
+        chk.grid(row=row_idx, column=0, padx=5, pady=2)
+        row_widgets.append(chk_var)  # index 0: 变量状态
+        row_widgets.append(chk)  # index 1: 勾选框UI组件
+
+        default_vals = data if data else {"武器": "", "星级": "6星", "毕业词条1": "", "毕业词条2": "", "毕业词条3": ""}
         fields = ["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"]
         widths = [18, 8, 16, 16, 16]
+
         for col, field in enumerate(fields):
             e = tk.Entry(scrollable_frame, width=widths[col], font=("微软雅黑", 10))
             e.insert(0, default_vals.get(field, ""))
-            e.grid(row=row_idx, column=col, padx=5, pady=2, sticky="ew")
+            e.grid(row=row_idx, column=col + 1, padx=5, pady=2, sticky="ew")  # 列数向右偏移 1
             row_widgets.append(e)
 
-        btn_del = tk.Button(scrollable_frame, text="删除", fg="white", bg="#d32f2f", command=lambda r=row_widgets: remove_row(r))
-        btn_del.grid(row=row_idx, column=5, padx=10, pady=2)
+        btn_del = tk.Button(scrollable_frame, text="删除", fg="white", bg="#d32f2f",
+                            command=lambda r=row_widgets: remove_row(r))
+        btn_del.grid(row=row_idx, column=6, padx=10, pady=2)  # 列数修正为 6
         row_widgets.append(btn_del)
-        table_rows.append(row_widgets)
+
+        if is_new:
+            table_rows.insert(0, row_widgets)
+        else:
+            table_rows.append(row_widgets)
 
     def remove_row(row_widgets):
-        for w in row_widgets: w.destroy()
+        # 注意跳过 index 0 (它是 BooleanVar 变量不是组件)，只销毁实际 UI 控件
+        for w in row_widgets[1:]:
+            w.destroy()
         if row_widgets in table_rows:
             table_rows.remove(row_widgets)
 
+    # 批量删除逻辑
+    def batch_delete():
+        # 收集被勾选的行
+        rows_to_delete = [row for row in table_rows if row[0].get()]
+        if not rows_to_delete:
+            messagebox.showwarning("提示", "请先勾选需要删除的数据！", parent=editor_win)
+            return
+
+        if messagebox.askyesno("批量删除",
+                               f"确定要删除选中的 {len(rows_to_delete)} 项吗？\n注意：需要点击保存才会写入文件。",
+                               parent=editor_win):
+            for row in rows_to_delete:
+                remove_row(row)
+            select_all_var.set(False)
+
+    dm.weapon_list.sort(key=lambda x: str(x.get('星级', '6星')), reverse=True)
+
     for weapon in dm.weapon_list:
-        add_row_ui(weapon)
+        add_row_ui(weapon, is_new=False)
 
     footer = tk.Frame(editor_win)
     footer.pack(fill="x", pady=15)
@@ -119,14 +230,19 @@ def show_weapon_editor_popup(root, dm):
         new_data = []
         for row in table_rows:
             try:
-                if not row[0].winfo_exists(): continue
-                vals = [row[i].get().strip() for i in range(5)]
+                # 检查 Entry 是否还存在 (索引从 0 改为了 2)
+                if not row[2].winfo_exists(): continue
+
+                # 提取数据跳过前两个(选择框状态和选择框UI)，提取 2 到 6
+                vals = [row[i].get().strip() for i in range(2, 7)]
                 if not vals[0]: continue
+
                 new_data.append({
                     "武器": vals[0], "星级": vals[1] if "星" in vals[1] else f"{vals[1]}星",
                     "毕业词条1": vals[2], "毕业词条2": vals[3], "毕业词条3": vals[4]
                 })
-            except: continue
+            except:
+                continue
 
         try:
             with open(dm.csv_file, 'w', encoding='utf-8-sig', newline='') as f:
@@ -134,10 +250,19 @@ def show_weapon_editor_popup(root, dm):
                 writer.writeheader()
                 writer.writerows(new_data)
             dm.weapon_list = new_data
-            messagebox.showinfo("成功", "数据已保存！")
+            messagebox.showinfo("成功", "数据已保存！", parent=editor_win)
             editor_win.destroy()
         except Exception as e:
-            messagebox.showerror("保存失败", str(e))
+            messagebox.showerror("保存失败", str(e), parent=editor_win)
 
-    tk.Button(footer, text="+ 新增一行", command=add_row_ui, bg="#f0f0f0", width=15).pack(side="left", padx=30)
-    tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"), width=20).pack(side="right", padx=30)
+    # 底部按钮区布局更新
+    left_footer = tk.Frame(footer)
+    left_footer.pack(side="left", padx=30)
+
+    tk.Button(left_footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True), bg="#f0f0f0", width=12).pack(
+        side="left", padx=(0, 10))
+    tk.Button(left_footer, text="🗑️ 批量删除", command=batch_delete, bg="#d32f2f", fg="white", width=12).pack(
+        side="left")
+
+    tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"),
+              width=20).pack(side="right", padx=30)

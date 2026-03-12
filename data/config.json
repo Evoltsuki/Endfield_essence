@@ -1,5 +1,7 @@
 {
-    "skip_marked": true,
+    "skip_marked": false,
     "ignore_5star": true,
-    "debug_gold": false
+    "debug_gold": true,
+    "window_x": 1999,
+    "window_y": 688
 }
