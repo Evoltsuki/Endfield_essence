@@ -20,9 +20,9 @@ class MatrixAssistantApp:
 
         # 定义主窗口尺寸
         self.app_width = 530
-        self.app_height = 768
+        self.app_height = 800
 
-        self.root.title("毕业基质自动识别工具beta v2.3 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v2.5 -by洁柔厨")
         self.root.attributes("-topmost", True)
 
         # 拦截关闭事件，绑定到自定义的保存逻辑
@@ -145,24 +145,41 @@ class MatrixAssistantApp:
         tk.Button(data_inner, text="⚔修改武器数据", command=lambda: show_weapon_editor_popup(self.root, self.dm),
                   font=("微软雅黑", 8), bg="#F5F5F5").pack(fill="x", pady=(0, 2), ipady=1)
 
+        # ---------------- 核心修改区：引入 PanedWindow 实现可拖拽 ----------------
         content_frame = tk.Frame(self.root)
         content_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        tk.Label(content_frame, text="实时日志:", font=("微软雅黑", 11, "bold")).pack(anchor="w")
-        self.log_area = scrolledtext.ScrolledText(content_frame, height=9, font=("微软雅黑", 10), relief="solid",
+        # 创建一个垂直布局的 PanedWindow，sashwidth 控制拖动条宽度，sashrelief 增加拖动条立体感
+        self.paned_window = tk.PanedWindow(content_frame, orient=tk.VERTICAL, sashwidth=6, sashrelief=tk.RAISED, bg="#E0E0E0")
+        self.paned_window.pack(fill="both", expand=True)
+
+        # === 拖拽区域 1：实时日志 ===
+        log_pane = tk.Frame(self.paned_window)
+        # minsize 防止拖拽得太小导致控件消失
+        self.paned_window.add(log_pane, stretch="always", minsize=100)
+
+        tk.Label(log_pane, text="实时日志:", font=("微软雅黑", 11, "bold")).pack(anchor="w")
+        # 移除了固定 height 属性，让布局管理器接管高度
+        self.log_area = scrolledtext.ScrolledText(log_pane, height=5, font=("微软雅黑", 10), relief="solid",
                                                   borderwidth=1)
-        self.log_area.pack(pady=(2, 10), fill="both", expand=True)
+        self.log_area.pack(pady=(2, 5), fill="both", expand=True)
         for t, c in [("black", "black"), ("green", "#2E7D32"), ("gold", "#FF9800"),
                      ("red", "#B71C1C"), ("blue", "blue"), ("gray", "#757575")]:
             self.log_area.tag_config(t, foreground=c)
 
-        tk.Label(content_frame, text="已锁定列表:", font=("微软雅黑", 11, "bold"), fg=MUTED_RED).pack(anchor="w")
-        self.lock_list_area = scrolledtext.ScrolledText(content_frame, height=8, font=("微软雅黑", 10), bg="#F9F9F9",
+        # === 拖拽区域 2：已锁定列表 ===
+        lock_pane = tk.Frame(self.paned_window)
+        # 默认给它更多的初始空间，相当于原来的 height=12 的感觉
+        self.paned_window.add(lock_pane, stretch="always", minsize=150)
+
+        tk.Label(lock_pane, text="已锁定列表:", font=("微软雅黑", 11, "bold"), fg=MUTED_RED).pack(anchor="w")
+        self.lock_list_area = scrolledtext.ScrolledText(lock_pane, height=11, font=("微软雅黑", 10), bg="#F9F9F9",
                                                         relief="solid", borderwidth=1)
         self.lock_list_area.pack(pady=(2, 0), fill="both", expand=True)
         for t, c in [("red_text", "#B71C1C"), ("gold_text", "#FF9800"), ("green_text", "#2E7D32"),
                      ("black_text", "black")]:
             self.lock_list_area.tag_config(t, foreground=c)
+        # -------------------------------------------------------------------------
 
     def gui_log(self, m, tag="black"):
         self.root.after(0, self._gui_log_safe, m, tag)

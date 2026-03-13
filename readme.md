@@ -58,6 +58,7 @@ python main.py
 ├── core/
 │   ├── layout.py       # MAA 官方 720p 坐标基准库
 │   └── analyzer.py     # OCR 解析、模糊匹配与智能决策逻辑
+│   └── scanner.py      # 
 ├── device/
 │   └── controller.py   # 截图、自动缩放计算、点击操作
 ├── gui/

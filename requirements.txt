@@ -9,3 +9,4 @@ PyGetWindow==0.0.9
 pynput==1.8.1
 pywin32==311
 rapidocr-onnxruntime==1.4.4
+pydirectinput

@@ -45,7 +45,7 @@ class AutoScanner:
         cfg_debug_gold = self.dm.data.get("debug_gold", False)
 
         while self.running:
-            win_img = self.controller.capture_window_bg(env["hwnd"], env["res_w"], env["res_h"])
+            win_img = self.controller.capture_window_bg(env)
             if win_img is None:
                 self.log_cb("[错误] 后台截图失败", "red")
                 break
@@ -88,13 +88,12 @@ class AutoScanner:
 
                 logic_row = total_rows + (idx // 9) + 1
                 logic_col = (idx % 9) + 1
-                self.log_cb(f"--- 检查: {logic_row}-{logic_col} ---")
 
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
                 # 恢复你原本优秀的 delay=0.2 缓冲设计，不作额外等待
                 self.controller.click_at(abs_cx, abs_cy, delay=0.2)
 
-                scr = self.controller.capture_window_bg(env["hwnd"], env["res_w"], env["res_h"])
+                scr = self.controller.capture_window_bg(env)
                 lock_rel_pos = (layout["lock_btn"][0] - env["abs_x"], layout["lock_btn"][1] - env["abs_y"])
                 discard_rel_pos = (layout["discard_btn"][0] - env["abs_x"], layout["discard_btn"][1] - env["abs_y"])
 
@@ -102,6 +101,7 @@ class AutoScanner:
                     is_locked = self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"])
                     is_discarded = self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"])
                     if is_locked or is_discarded:
+                        self.log_cb(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                         self.log_cb(f"-> 该基质已{'锁定' if is_locked else '废弃'}，跳过", "gray")
                         continue
 
@@ -112,6 +112,7 @@ class AutoScanner:
                 display_str, skills, levels = self.analyzer.recognize_and_parse(o_img)
 
                 if display_str:
+                    self.log_cb(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                     self.log_cb(f"识别结果: {display_str}", "green")
                     is_keep, matched_weapons, match_type = self.analyzer.check_all_attributes(self.dm.weapon_list,
                                                                                               skills, levels)
@@ -138,6 +139,7 @@ class AutoScanner:
                             self.log_cb("-> 已执行废弃指令", "gray")
                             self.controller.move_rel(50, 50)
                 else:
+                    self.log_cb(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                     self.log_cb("-> 未读到词条")
 
             if not self.running: break
