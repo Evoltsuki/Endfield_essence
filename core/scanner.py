@@ -143,7 +143,13 @@ class AutoScanner:
                                 is_keep = False
 
                     if is_keep:
-                        quick_log("⭐ 识别到毕业基质！" if match_type == "graduation" else "⭐ 识别到潜力基质！", "gold")
+                        if match_type == "graduation":
+                            is_6star = any("6" in w_star for _, w_star in matched_weapons)
+                            grad_color = "red" if is_6star else "gold"
+                            quick_log([("⭐ 识别到", "gold"), ("毕业基质！", grad_color)])
+                        else:
+                            quick_log("⭐ 识别到潜力基质！", "gold")
+
                         if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
                             self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.1)
                             quick_log("-> 已执行锁定指令", "blue")

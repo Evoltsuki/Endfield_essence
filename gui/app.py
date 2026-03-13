@@ -20,7 +20,7 @@ class MatrixAssistantApp:
         self.app_width = 530
         self.app_height = 800
 
-        self.root.title("毕业基质自动识别工具beta v2.6 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v2.7 -by洁柔厨")
         self.root.attributes("-topmost", True)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -53,7 +53,7 @@ class MatrixAssistantApp:
         self.root.geometry(f"{self.app_width}x{self.app_height}+{pos_x}+{pos_y}")
 
     def on_close(self):
-        """窗口关闭处理事件，保存配置与清理资源"""
+        """处理窗口关闭事件并清理线程"""
         self.root.update_idletasks()
         self.dm.data["window_x"] = self.root.winfo_x()
         self.dm.data["window_y"] = self.root.winfo_y()
@@ -167,15 +167,21 @@ class MatrixAssistantApp:
             self.lock_list_area.tag_config(t, foreground=c)
 
     def gui_log(self, m, tag="black"):
-        """线程安全地向 UI 更新日志"""
+        """在 UI 中输出日志"""
         self.root.after(0, self._gui_log_safe, m, tag)
 
     def _gui_log_safe(self, m, tag):
-        self.log_area.insert(tk.END, m + "\n", tag)
+        """解析日志内容，支持单行多色文本渲染"""
+        if isinstance(m, list):
+            for text, color_tag in m:
+                self.log_area.insert(tk.END, text, color_tag)
+            self.log_area.insert(tk.END, "\n")
+        else:
+            self.log_area.insert(tk.END, str(m) + "\n", tag)
         self.log_area.see(tk.END)
 
     def add_to_lock_list(self, data):
-        """线程安全地更新已锁定列表"""
+        """更新已锁定列表记录"""
         self.root.after(0, self._add_to_lock_list_safe, data)
 
     def _add_to_lock_list_safe(self, data):
@@ -230,7 +236,7 @@ class MatrixAssistantApp:
         self.dm.save_config()
 
     def start_thread(self):
-        """启动扫描线程"""
+        """初始化配置并拉起扫描执行线程"""
         if self.scanner and self.scanner.running:
             return
 

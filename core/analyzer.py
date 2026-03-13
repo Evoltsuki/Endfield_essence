@@ -20,7 +20,7 @@ class VisionAnalyzer:
         try:
             # 初始化 OCR 引擎并配置底层优化参数
             self.ocr = RapidOCR(
-                intra_op_num_threads=2,
+                intra_op_num_threads=4,
                 det_limit_side_len=640,
                 det_limit_type='max',
                 det_unclip_ratio=2.5,   # 提高膨胀比例，防止边缘细小字符漏检
