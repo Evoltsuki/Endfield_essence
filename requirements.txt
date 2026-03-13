@@ -1,12 +1,9 @@
-mss==10.1.0
-numpy==2.2.6
+numpy==2.4.3
 opencc-python-reimplemented==0.1.7
-opencv-contrib-python==4.13.0.90
-pillow==12.1.0
-PyAutoGUI==0.9.54
+opencv-python==4.13.0.90
+Pillow==12.1.1
 PyDirectInput==1.0.4
-PyGetWindow==0.0.9
 pynput==1.8.1
 pywin32==311
 rapidocr-onnxruntime==1.4.4
-pydirectinput
+windows-capture==1.5.0

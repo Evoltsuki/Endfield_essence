@@ -56,16 +56,16 @@ python main.py
 ```text
 ├── main.py             # 主程序
 ├── core/
-│   ├── layout.py       # MAA 官方 720p 坐标基准库
-│   └── analyzer.py     # OCR 解析、模糊匹配与智能决策逻辑
-│   └── scanner.py      # 
+│   ├── layout.py       # 物理坐标基准库与分辨率，取自MaaEnd
+│   └── analyzer.py     # 图像预处理、OCR解析、模糊匹配决策
+│   └── scanner.py      # 实时日志推送、逻辑调度
 ├── device/
-│   └── controller.py   # 截图、自动缩放计算、点击操作
+│   └── controller.py   # 截图、DPI适配、模拟鼠标操作
 ├── gui/
 │   ├── app.py          # 主操作界面
-│   └── windows.py      # 编辑器与纠错字典弹窗
+│   └── windows.py      # 词条编辑器、纠错字典
 ├── utils/
-│   ├── data_manager.py # 配置、CSV 及 JSON 持久化管理
+│   ├── data_manager.py # 配置文件读写
 │   └── sys_helper.py   # DPI 适配、提权与路径处理
 ├── data/               # 数据库 (配置文件、武器词条表、纠错字典)
 └── img/                # 资源库 (图标、状态判定模板图)
