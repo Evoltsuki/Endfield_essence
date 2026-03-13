@@ -10,7 +10,6 @@ class DataManager:
         self.csv_file = "data/weapon_data.csv"
         self.corrections_file = "data/Jiucuo.json"
 
-        # 确保 data 目录存在，防止写入时报错
         os.makedirs("data", exist_ok=True)
 
         self.data = self.load_config()
@@ -18,13 +17,13 @@ class DataManager:
         self.corrections = self.load_corrections()
 
     def load_config(self):
-        # 定义开关和窗口坐标的默认值
+        """加载或初始化应用配置信息"""
         default_config = {
             "skip_marked": False,
             "ignore_5star": True,
             "debug_gold": False,
-            "window_x": None,  # 新增：主窗口X坐标
-            "window_y": None   # 新增：主窗口Y坐标
+            "window_x": None,
+            "window_y": None
         }
 
         if os.path.exists(self.config_file):
@@ -32,7 +31,6 @@ class DataManager:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     conf = json.load(f)
 
-                # 兼容机制：把已有的本地配置和默认配置合并
                 for k, v in default_config.items():
                     if k not in conf:
                         conf[k] = v
@@ -43,6 +41,7 @@ class DataManager:
         return default_config
 
     def save_config(self):
+        """保存应用配置信息至本地文件"""
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=4)
@@ -50,21 +49,25 @@ class DataManager:
             print(f"保存配置失败: {e}")
 
     def load_corrections(self):
+        """读取错字纠正配置字典"""
         if os.path.exists(self.corrections_file):
             with open(self.corrections_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {}
 
     def load_weapon_csv(self):
+        """解析并加载武器与基质匹配数据"""
         ws = []
         if not os.path.exists(self.csv_file):
             messagebox.showwarning("缺少必要文件", f"未检测到武器文件：{self.csv_file}\n请确保文件在程序根目录下！")
             return ws
+
         try:
             with open(self.csv_file, 'r', encoding='utf-8-sig') as f:
                 r = csv.DictReader(f)
                 if r.fieldnames and "武器" in r.fieldnames:
-                    for row in r: ws.append({k.strip(): v.strip() for k, v in row.items() if k})
+                    for row in r:
+                        ws.append({k.strip(): v.strip() for k, v in row.items() if k})
                 else:
                     messagebox.showerror("文件格式错误", "CSV格式不正确")
         except Exception as e:
@@ -72,5 +75,6 @@ class DataManager:
         return ws
 
     def save_corrections(self):
+        """保存当前错字纠正字典配置"""
         with open(self.corrections_file, 'w', encoding='utf-8') as f:
             json.dump(self.corrections, f, ensure_ascii=False, indent=4)

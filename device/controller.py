@@ -6,13 +6,13 @@ import time
 import threading
 from ctypes.wintypes import HWND, RECT, DWORD
 from tkinter import messagebox
-import pydirectinput  # 重新请回物理硬件级鼠标控制库
+import pydirectinput
 
-from core.layout import BASE_LAYOUT
-
-# 关闭 pydirectinput 的安全机制和延迟，以获得最快速度
+# 取消 pydirectinput 默认延迟和安全控制
 pydirectinput.PAUSE = 0.01
 pydirectinput.FAILSAFE = False
+
+from core.layout import BASE_LAYOUT
 
 try:
     from windows_capture import WindowsCapture
@@ -33,12 +33,15 @@ class DeviceController:
         self.wgc_error = ""
 
     def get_window_env(self):
+        """获取目标游戏窗口句柄及坐标信息"""
         hwnd = win32gui.FindWindow(None, 'Endfield') or win32gui.FindWindow(None, '终末地')
-        if not hwnd: return None
+        if not hwnd:
+            return None
 
         left, top, right, bottom = win32gui.GetClientRect(hwnd)
         res_w, res_h = right - left, bottom - top
-        if res_w == 0 or res_h == 0: return None
+        if res_w == 0 or res_h == 0:
+            return None
 
         pt = win32gui.ClientToScreen(hwnd, (0, 0))
         abs_x, abs_y = pt[0], pt[1]
@@ -61,8 +64,10 @@ class DeviceController:
         }
 
     def get_scaled_layout(self):
+        """根据当前分辨率计算 UI 缩放后的组件坐标"""
         env = self.get_window_env()
-        if not env: return None
+        if not env:
+            return None
 
         res_w, res_h = env["res_w"], env["res_h"]
         scale = env["ui_scale"]
@@ -99,10 +104,13 @@ class DeviceController:
             "roi_final": scale_rect(b["roi_final"])
         }
 
-    def _start_wgc_engine(self, title):
+    def _start_wgc_engine(self, title, hide_border=True):
+        """启动 Windows Graphics Capture 引擎以获取后台画面"""
         try:
-            # 【核心修改】加入 draw_border=False，告诉 Windows 隐藏截屏黄框警告
-            capture = WindowsCapture(window_name=title, cursor_capture=False, draw_border=False)
+            if hide_border:
+                capture = WindowsCapture(window_name=title, cursor_capture=False, draw_border=False)
+            else:
+                capture = WindowsCapture(window_name=title, cursor_capture=False)
 
             @capture.event
             def on_frame_arrived(frame, capture_control):
@@ -111,20 +119,24 @@ class DeviceController:
 
             @capture.event
             def on_closed():
-                self.wgc_error = "WGC被系统或游戏强行关闭！"
+                self.wgc_error = "WGC 捕获异常关闭"
 
             capture.start()
+
         except Exception as e:
-            self.wgc_error = f"引擎启动崩溃: {e}"
+            error_msg = str(e)
+            if "Toggling the capture border is not supported" in error_msg and hide_border:
+                self._start_wgc_engine(title, hide_border=False)
+            else:
+                self.wgc_error = f"引擎启动失败: {e}"
 
     def capture_window_bg(self, env):
-        """WGC 真后台透视截图，无视小飞机和浏览器遮挡"""
+        """执行后台截图"""
         hwnd = env["hwnd"]
         res_w, res_h = env["res_w"], env["res_h"]
 
         if not HAS_WGC:
-            messagebox.showerror("依赖缺失",
-                                 f"未检测到 windows-capture 库！\n请在终端执行: pip install windows-capture\n错误信息: {WGC_IMPORT_ERROR}")
+            messagebox.showerror("依赖缺失", f"缺失 windows-capture 库。\n{WGC_IMPORT_ERROR}")
             return None
 
         try:
@@ -145,7 +157,7 @@ class DeviceController:
                 time.sleep(0.05)
 
             if self.wgc_error:
-                messagebox.showerror("WGC 底层崩溃", f"引擎报错：\n{self.wgc_error}")
+                messagebox.showerror("捕获错误", f"截图引擎报错：\n{self.wgc_error}")
                 return None
 
             frame = None
@@ -154,7 +166,7 @@ class DeviceController:
                     frame = self.wgc_frame.copy()
 
             if frame is None:
-                messagebox.showerror("WGC 捕获超时", "2.5秒内未收到任何画面。请确保游戏没有被最小化到任务栏！")
+                messagebox.showerror("超时", "画面获取超时，请检查游戏窗口状态。")
                 return None
 
             rect = RECT()
@@ -168,57 +180,53 @@ class DeviceController:
             x1, x2 = max(0, crop_x), min(w, crop_x + res_w)
 
             client_frame = frame[y1:y2, x1:x2]
-
             if client_frame.size == 0:
                 return None
 
             return cv2.cvtColor(client_frame, cv2.COLOR_BGRA2BGR)
 
         except Exception as e:
-            messagebox.showerror("WGC 未知异常", f"捕获过程中发生了错误：\n{e}")
+            messagebox.showerror("异常", f"捕获过程出错：\n{e}")
             return None
 
     def _ensure_foreground(self, hwnd):
-        """【智能防误触】确保游戏窗口在最上层，防止物理点击点到其他软件"""
+        """确保游戏窗口置顶以接收鼠标事件"""
         if win32gui.GetForegroundWindow() != hwnd:
             try:
-                # 恢复可能被最小化的窗口
                 win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                # 强制拉起到最前
                 win32gui.SetForegroundWindow(hwnd)
-                # 给系统一点时间完成窗口切换动画
-                time.sleep(0.1)
-            except:
+            except Exception:
                 pass
 
     def click_at(self, x, y, delay=0.0):
-        """【物理点击】调用 DirectInput 满足 3D 引擎的输入要求"""
+        """执行鼠标点击操作"""
         env = self.get_window_env()
-        if not env: return
+        if not env:
+            return
 
         self._ensure_foreground(env["hwnd"])
-
-        # 物理控制真实的鼠标移动并点击
         pydirectinput.click(int(x), int(y))
 
-        if delay > 0: time.sleep(delay)
+        if delay > 0:
+            time.sleep(delay)
 
     def move_rel(self, x_offset, y_offset):
+        """执行鼠标相对移动操作"""
         pydirectinput.moveRel(int(x_offset), int(y_offset))
 
     def swipe_up(self, start_x, start_y, distance):
-        """【物理滑动】"""
+        """执行平滑的向上滑动操作"""
         env = self.get_window_env()
-        if not env: return
+        if not env:
+            return
 
         self._ensure_foreground(env["hwnd"])
 
         pydirectinput.moveTo(int(start_x), int(start_y))
         pydirectinput.mouseDown()
-        time.sleep(0.05)
 
-        steps = 20
-        for s in range(steps):
+        steps = 10
+        for s in range(1, steps + 1):
             pydirectinput.moveTo(int(start_x), int(start_y - (distance * (s / steps))))
             time.sleep(0.01)
 
