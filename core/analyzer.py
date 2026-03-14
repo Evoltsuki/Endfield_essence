@@ -106,7 +106,7 @@ class VisionAnalyzer:
         txt = self.cc.convert(str(raw))
         return re.sub(r'[^\u4e00-\u9fff]', '', txt)
 
-    def check_all_attributes(self, weapon_list, skills, levels):
+    def check_all_attributes(self, weapon_list, skills, levels, is_gold_item=True):
         """比对技能与武器数据，判断是否符合锁定条件"""
         if not skills:
             return False, [], ""
@@ -163,13 +163,26 @@ class VisionAnalyzer:
             return True, matched_weapons, "graduation"
 
         # 潜力基质判定
-        has_two_char_skill = any(len(s) == 2 for s in skills)
-        if sum(levels) >= 6 and has_two_char_skill:
-            return True, [("潜力基质", "5星")], "potential"
-
-        for s, l in zip(skills, levels):
-            if len(s) == 2 and l == 3:
+        if is_gold_item:
+            # 金色基质锁定逻辑：总等级>=6且有二字词条，或者有单条二字三级词条
+            has_two_char_skill = any(len(s) == 2 for s in skills)
+            if sum(levels) >= 6 and has_two_char_skill:
                 return True, [("潜力基质", "5星")], "potential"
+
+            for s, l in zip(skills, levels):
+                if len(s) == 2 and l == 3:
+                    return True, [("潜力基质", "5星")], "potential"
+        else:
+            # 紫色基质锁定逻辑：
+            # 1. 有二字词条且为 3 级 -> 锁定
+            # 2. 有二字词条且为 2 级，且词条总等级 >= 6
+            total_levels = sum(levels)
+            for s, l in zip(skills, levels):
+                if len(s) == 2:
+                    if l == 3:
+                        return True, [("潜力基质", "4星")], "potential"
+                    elif l == 2 and total_levels >= 6:
+                        return True, [("潜力基质", "4星")], "potential"
 
         return False, [], ""
 
@@ -177,10 +190,12 @@ class VisionAnalyzer:
         """通过 HSV 色彩空间判断基质是否为金色品质"""
         try:
             h, w = bgr.shape[:2]
-            strip = bgr[int(h * 0.75):, :]
+            strip = bgr[int(h * 0.75):, int(w * 0.15):int(w * 0.85)]
+
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
             mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([35, 255, 255]))
-            return (np.sum(mask > 0) / mask.size) > 0.05
+
+            return (np.sum(mask > 0) / mask.size) > 0.08
         except Exception:
             return False
 
