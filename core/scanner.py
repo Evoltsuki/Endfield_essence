@@ -77,8 +77,9 @@ class AutoScanner:
                         continue
 
                 physical_items_count += 1
-                if cfg_debug_gold or self.analyzer.is_gold(box_img):
-                    valid_boxes.append(b)
+                is_gold_item = self.analyzer.is_gold(box_img)
+                if cfg_debug_gold or is_gold_item:
+                    valid_boxes.append((b, is_gold_item))
 
             if physical_items_count == 0:
                 if not final_sweep_mode:
@@ -89,7 +90,8 @@ class AutoScanner:
                     self.log_cb("[系统] 基质扫描结束！", "blue")
                     break
 
-            for idx, b in enumerate(valid_boxes):
+            for idx, item in enumerate(valid_boxes):
+                b, is_gold_item = item
                 if not self.running:
                     break
 
@@ -133,7 +135,7 @@ class AutoScanner:
                     quick_log(f"识别结果: {display_str}", "green")
 
                     is_keep, matched_weapons, match_type = self.analyzer.check_all_attributes(
-                        self.dm.weapon_list, skills, levels
+                        self.dm.weapon_list, skills, levels, is_gold_item
                     )
 
                     if is_keep and cfg_ignore_5star:
