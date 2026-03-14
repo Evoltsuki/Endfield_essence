@@ -230,6 +230,6 @@ class DeviceController:
             pydirectinput.moveTo(int(start_x), int(start_y - (distance * (s / steps))))
             time.sleep(0.01)
 
-        time.sleep(0.5)
+        time.sleep(0.7)
         pydirectinput.mouseUp()
         time.sleep(0.1)
