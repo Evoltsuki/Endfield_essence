@@ -30,6 +30,57 @@ class VisionAnalyzer:
         except Exception as e:
             messagebox.showerror("初始化失败", str(e))
 
+    def is_on_essence_page(self, window_img, roi, scale):
+        """检查当前是否停留在基质背包页面"""
+        try:
+            template_path = resource_path(os.path.join("img", "EssenceSlot.png"))
+            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
+                return True
+
+            if scale != 1.0:
+                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+
+            rx, ry, rw, rh = roi
+            margin = int(5 * scale)
+            y1, y2 = max(0, ry - margin), min(window_img.shape[0], ry + rh + margin)
+            x1, x2 = max(0, rx - margin), min(window_img.shape[1], rx + rw + margin)
+
+            search_area = cv2.cvtColor(window_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+
+            if search_area.shape[0] < template.shape[0] or search_area.shape[1] < template.shape[1]:
+                return False
+
+            res = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(res)
+
+            return max_val > 0.8
+        except Exception:
+            return False
+
+    def get_inventory_count(self, window_img, roi):
+        """读取左上角基质库存总数"""
+        try:
+            rx, ry, rw, rh = roi
+            crop_img = window_img[max(0, ry):ry + rh, max(0, rx):rx + rw]
+            if crop_img.size == 0:
+                return 325  # 识别失败时默认返回数字，走常规滑动流程
+
+            gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+            resized = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
+
+            res, _ = self.ocr(resized, use_cls=False)
+            if res:
+                txt = str(res[0][1])
+                import re
+                match = re.search(r'(\d+)', txt)
+                if match:
+                    return int(match.group(1))
+        except Exception:
+            pass
+        return 325
+
     def parse_ocr_lines(self, res):
         """解析 OCR 识别结果，提取技能名称与等级"""
         if not res:

@@ -101,7 +101,9 @@ class DeviceController:
             "swipe_dist_first": int(b["swipe_dist_first"] * scale),
             "swipe_dist_next": int(b["swipe_dist_next"] * scale),
             "roi_row1": scale_rect(b["roi_row1"]),
-            "roi_final": scale_rect(b["roi_final"])
+            "roi_final": scale_rect(b["roi_final"]),
+            "inventory_tab_roi": scale_rect(b["inventory_tab_roi"]),
+            "inventory_count_roi": scale_rect(b["inventory_count_roi"])
         }
 
     def _start_wgc_engine(self, title, hide_border=True):

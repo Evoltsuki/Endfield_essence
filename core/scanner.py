@@ -51,6 +51,25 @@ class AutoScanner:
         cfg_ignore_5star = self.dm.data.get("ignore_5star", True)
         cfg_debug_gold = self.dm.data.get("debug_gold", False)
 
+        win_img = self.controller.capture_window_bg(env)
+        if win_img is None:
+            self.log_cb("[错误] 后台截图失败，请检查游戏窗口", "red")
+            return
+
+        if not self.analyzer.is_on_essence_page(win_img, layout["inventory_tab_roi"], env["ui_scale"]):
+            self.log_cb("[错误] 未检测到基质界面，请按N键打开游戏内的基质背包！", "red")
+            return
+
+        self.log_cb("[系统] 确认当前处于基质界面", "green")
+
+        if win_img is not None:
+            total_count = self.analyzer.get_inventory_count(win_img, layout["inventory_count_roi"])
+            self.log_cb(f"[系统] 当前有 {total_count} 个基质", "blue")
+
+            if total_count <= 45:
+                self.log_cb("[系统] 基质不足一页，直接进入全局尾扫模式...", "blue")
+                final_sweep_mode = True
+
         while self.running:
             win_img = self.controller.capture_window_bg(env)
             if win_img is None:
@@ -187,7 +206,7 @@ class AutoScanner:
                 break
 
             if physical_items_count == 9:
-                self.log_cb("[翻页] 正在向上滑动...", "black")
+                self.log_cb("[翻页] 正在向下滑动...", "black")
                 dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
                 self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], dist)
                 total_rows += 1
