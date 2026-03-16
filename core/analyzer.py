@@ -36,7 +36,7 @@ class VisionAnalyzer:
             template_path = resource_path(os.path.join("img", "EssenceSlot.png"))
             template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
             if template is None:
-                self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
+                print("[警告] 未找到 EssenceSlot.png，跳过界面检测")
                 return True
 
             if scale != 1.0:
@@ -55,7 +55,7 @@ class VisionAnalyzer:
             res = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
 
-            return max_val > 0.8
+            return max_val > 0.75
         except Exception:
             return False
 
@@ -273,7 +273,7 @@ class VisionAnalyzer:
 
             res = cv2.matchTemplate(scope_gray, template, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
-            return max_val > 0.85
+            return max_val > 0.755
         except Exception:
             return False
 
