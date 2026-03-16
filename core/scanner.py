@@ -34,6 +34,24 @@ class AutoScanner:
         for msg, tag in logs:
             self.log_cb(msg, tag)
 
+    def _get_row_signature(self, boxes):
+        """计算行签名，用于检测滑动是否有效"""
+        if not boxes:
+            return None
+        centers = [(int((bx1 + bx2) / 2), int((by1 + by2) / 2)) for bx1, by1, bx2, by2 in boxes]
+        return tuple(sorted(centers))
+
+    def _signatures_similar(self, sig1, sig2, threshold=20):
+        """比较两个签名是否相似"""
+        if sig1 is None or sig2 is None:
+            return False
+        if len(sig1) != len(sig2):
+            return False
+        for (x1, y1), (x2, y2) in zip(sig1, sig2):
+            if abs(x1 - x2) > threshold or abs(y1 - y2) > threshold:
+                return False
+        return True
+
     def _run_loop(self):
         """核心扫描逻辑主循环"""
         layout = self.controller.get_scaled_layout()
@@ -46,6 +64,7 @@ class AutoScanner:
 
         total_rows = 0
         final_sweep_mode = False
+        last_row_signature = None
 
         cfg_skip_marked = self.dm.data.get("skip_marked", False)
         cfg_ignore_5star = self.dm.data.get("ignore_5star", True)
@@ -207,8 +226,13 @@ class AutoScanner:
 
             if physical_items_count == 9:
                 self.log_cb("[翻页] 正在向下滑动...", "black")
+                current_signature = self._get_row_signature([b for b, _ in valid_boxes])
                 dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
                 self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], dist)
+                if last_row_signature is not None and self._signatures_similar(last_row_signature, current_signature):
+                    self.log_cb("[系统] 滑动未改变位置，切换到全局尾扫模式...", "blue")
+                    final_sweep_mode = True
+                last_row_signature = current_signature
                 total_rows += 1
             else:
                 self.log_cb("[系统] 基质扫描结束！", "blue")
