@@ -80,6 +80,7 @@ class AutoScanner:
             boxes = self.analyzer.find_essences_with_mask(win_img, current_roi, env["ui_scale"])
 
             physical_items_count = 0
+            gold_items_count = 0
             valid_boxes = []
 
             # 过滤无效或非目标品质的物品框
@@ -97,9 +98,25 @@ class AutoScanner:
 
                 physical_items_count += 1
                 is_gold_item = self.analyzer.is_gold(box_img)
-                if cfg_debug_gold or is_gold_item:
-                    valid_boxes.append((b, is_gold_item))
+                if is_gold_item:
+                    gold_items_count += 1
 
+                # 扩边截取缩略图以防止图标边缘被裁剪
+                margin = int(10 * env["ui_scale"])
+                ex1 = max(0, bx1 - margin)
+                ey1 = max(0, by1 - margin)
+                ex2 = min(win_img.shape[1], bx2 + margin)
+                ey2 = min(win_img.shape[0], by2 + margin)
+                expanded_box_img = win_img[ey1:ey2, ex1:ex2]
+
+                # 缩略图前置过滤已处理的基质
+                if cfg_skip_marked and self.analyzer.is_thumb_marked(expanded_box_img, env["ui_scale"], self.log_cb):
+                    continue
+
+                if cfg_debug_gold or is_gold_item:
+                    valid_boxes.append((b, is_gold_item, physical_items_count))
+
+            # 行状态判定与提示
             if physical_items_count == 0:
                 if not final_sweep_mode:
                     self.log_cb("[系统] 探测行未发现基质，触发全局尾扫模式...", "blue")
@@ -108,9 +125,11 @@ class AutoScanner:
                 else:
                     self.log_cb("[系统] 基质扫描结束！", "blue")
                     break
+            elif physical_items_count == 9 and len(valid_boxes) == 0:
+                self.log_cb(f"[系统] 第 {total_rows + 1} 行已全部标记，跳过", "green")
 
-            for idx, item in enumerate(valid_boxes):
-                b, is_gold_item = item
+            for item in valid_boxes:
+                b, is_gold_item, physical_col = item
                 if not self.running:
                     break
 
@@ -122,11 +141,10 @@ class AutoScanner:
                 bx1, by1, bx2, by2 = b
                 cx, cy = (bx1 + bx2) // 2, (by1 + by2) // 2
 
-                logic_row = total_rows + (idx // 9) + 1
-                logic_col = (idx % 9) + 1
+                logic_row = total_rows + 1
+                logic_col = physical_col
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
 
-                # 动态计算等待时间：开启跳过标记时，延长等待时间以确保锁定图标加载完毕
                 click_delay = 0.2 if cfg_skip_marked else 0.15
                 self.controller.click_at(abs_cx, abs_cy, delay=click_delay)
 
@@ -154,14 +172,8 @@ class AutoScanner:
                     quick_log(f"识别结果: {display_str}", "green")
 
                     is_keep, matched_weapons, match_type = self.analyzer.check_all_attributes(
-                        self.dm.weapon_list, skills, levels, is_gold_item
+                        self.dm.weapon_list, skills, levels, is_gold_item, cfg_ignore_5star
                     )
-
-                    if is_keep and cfg_ignore_5star:
-                        if match_type == "graduation":
-                            matched_weapons = [w for w in matched_weapons if "5" not in w[1]]
-                            if not matched_weapons:
-                                is_keep = False
 
                     if is_keep:
                         if match_type == "graduation":
@@ -172,7 +184,7 @@ class AutoScanner:
                             quick_log("⭐ 识别到潜力基质！", "gold")
 
                         if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
-                            self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.1)
+                            self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.15)
                             quick_log("-> 已执行锁定指令", "blue")
                             self.controller.move_rel(50, 50)
 
@@ -185,7 +197,7 @@ class AutoScanner:
                     else:
                         quick_log("判定为垃圾基质，准备废弃", "gray")
                         if not self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"]):
-                            self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.1)
+                            self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.15)
                             quick_log("-> 已执行废弃指令", "gray")
                             self.controller.move_rel(50, 50)
                 else:
@@ -201,7 +213,7 @@ class AutoScanner:
                 self.log_cb("[系统] 基质扫描结束！", "blue")
                 break
 
-            if physical_items_count > len(valid_boxes):
+            if not cfg_debug_gold and physical_items_count > gold_items_count:
                 self.log_cb("[系统] 识别到紫色基质，扫描结束！", "blue")
                 break
 

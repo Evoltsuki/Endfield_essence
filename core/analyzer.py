@@ -39,9 +39,6 @@ class VisionAnalyzer:
                 self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
                 return True
 
-            if scale != 1.0:
-                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
-
             rx, ry, rw, rh = roi
             margin = int(5 * scale)
             y1, y2 = max(0, ry - margin), min(window_img.shape[0], ry + rh + margin)
@@ -49,13 +46,26 @@ class VisionAnalyzer:
 
             search_area = cv2.cvtColor(window_img[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
 
+            # 采用反向缩放策略：将截取的屏幕 ROI 缩放回基准分辨率
+            if scale != 1.0:
+                inv_scale = 1.0 / scale
+                inter = cv2.INTER_AREA if inv_scale < 1.0 else cv2.INTER_CUBIC
+                search_area = cv2.resize(search_area, None, fx=inv_scale, fy=inv_scale, interpolation=inter)
+
             if search_area.shape[0] < template.shape[0] or search_area.shape[1] < template.shape[1]:
                 return False
 
-            res = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
+            # 使用 Canny 边缘检测提取轮廓线条
+            template_edges = cv2.Canny(template, 50, 150)
+            search_edges = cv2.Canny(search_area, 50, 150)
+
+            # 基于边缘图进行模板匹配
+            res = cv2.matchTemplate(search_edges, template_edges, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
 
-            return max_val > 0.8
+            # 纯线条特征匹配度阈值判定
+            return max_val > 0.40
+
         except Exception:
             return False
 
@@ -80,6 +90,60 @@ class VisionAnalyzer:
         except Exception:
             pass
         return 325
+
+    def is_thumb_marked(self, box_img, scale, log_cb=None):
+        """检测基质缩略图左下角是否有已处理的小图标"""
+        try:
+            h, w = box_img.shape[:2]
+
+            # 截取缩略图左下角区域 (35%高度, 30%宽度) 进行精准匹配
+            corner = box_img[int(h * 0.65):, :int(w * 0.30)]
+            corner_gray = cv2.cvtColor(corner, cv2.COLOR_BGR2GRAY)
+
+            if scale != 1.0:
+                inv_scale = 1.0 / scale
+                inter = cv2.INTER_AREA if inv_scale < 1.0 else cv2.INTER_CUBIC
+                corner_gray = cv2.resize(corner_gray, None, fx=inv_scale, fy=inv_scale, interpolation=inter)
+
+            img_dir = resource_path("img")
+            if not os.path.exists(img_dir):
+                return False
+
+            def check_icon(prefix):
+                files = [f for f in os.listdir(img_dir) if f.startswith(prefix) and f.endswith(".png")]
+                if not files:
+                    return False
+
+                best_val = 0.0
+                for f in files:
+                    tpl_path = os.path.join(img_dir, f)
+                    tpl = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+                    if tpl is None:
+                        continue
+
+                    if corner_gray.shape[0] < tpl.shape[0] or corner_gray.shape[1] < tpl.shape[1]:
+                        if log_cb and not getattr(self, f"_warned_size_{f}", False):
+                            log_cb(f"[警告] 模板 {f} 尺寸过大，无法进行缩略图匹配", "red")
+                            setattr(self, f"_warned_size_{f}", True)
+                        continue
+
+                    res = cv2.matchTemplate(corner_gray, tpl, cv2.TM_CCOEFF_NORMED)
+                    _, max_val, _, _ = cv2.minMaxLoc(res)
+                    if max_val > best_val:
+                        best_val = max_val
+
+                return best_val > 0.65
+
+            if check_icon("ThumbDiscard") or check_icon("ThumbLock"):
+                return True
+
+            return False
+
+        except Exception as e:
+            if log_cb and not getattr(self, "_warned_thumb_err", False):
+                log_cb(f"[警告] 缩略图识别异常: {e}", "red")
+                self._warned_thumb_err = True
+            return False
 
     def parse_ocr_lines(self, res):
         """解析 OCR 识别结果，提取技能名称与等级"""
@@ -157,7 +221,7 @@ class VisionAnalyzer:
         txt = self.cc.convert(str(raw))
         return re.sub(r'[^\u4e00-\u9fff]', '', txt)
 
-    def check_all_attributes(self, weapon_list, skills, levels, is_gold_item=True):
+    def check_all_attributes(self, weapon_list, skills, levels, is_gold_item=True, ignore_5star=False):
         """比对技能与武器数据，判断是否符合锁定条件"""
         if not skills:
             return False, [], ""
@@ -178,6 +242,9 @@ class VisionAnalyzer:
         # 毕业武器匹配校验
         for w_name, w_star, ts in self._cleaned_weapons_cache:
             if not ts:
+                continue
+
+            if ignore_5star and "5" in w_star:
                 continue
 
             h_hits, p_hits = 0, 0

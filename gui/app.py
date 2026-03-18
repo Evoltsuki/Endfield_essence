@@ -20,7 +20,7 @@ class MatrixAssistantApp:
         self.app_width = 530
         self.app_height = 800
 
-        self.root.title("毕业基质自动识别工具beta v2.8 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v3.0 -by洁柔厨")
         self.root.attributes("-topmost", True)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
