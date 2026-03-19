@@ -4,9 +4,20 @@ import win32con
 import ctypes
 import time
 import threading
+import platform
 from ctypes.wintypes import HWND, RECT, DWORD
 from tkinter import messagebox
 import pydirectinput
+
+"""强制获取当前系统的dpi"""
+if platform.system() == "Windows":
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            pass
 
 # 取消 pydirectinput 默认延迟和安全控制
 pydirectinput.PAUSE = 0.01
@@ -174,16 +185,29 @@ class DeviceController:
             rect = RECT()
             ctypes.windll.dwmapi.DwmGetWindowAttribute(HWND(hwnd), DWORD(9), ctypes.byref(rect), ctypes.sizeof(rect))
 
-            crop_x = env["abs_x"] - rect.left
-            crop_y = env["abs_y"] - rect.top
-
+            # 计算 WGC物理画面 与 win32gui逻辑坐标 之间的误差比例
+            logical_w = rect.right - rect.left
+            logical_h = rect.bottom - rect.top
             h, w = frame.shape[:2]
-            y1, y2 = max(0, crop_y), min(h, crop_y + res_h)
-            x1, x2 = max(0, crop_x), min(w, crop_x + res_w)
+
+            ratio_x = w / logical_w if logical_w > 0 else 1.0
+            ratio_y = h / logical_h if logical_h > 0 else 1.0
+
+            # 按比例映射真正的物理裁剪坐标
+            crop_x = int((env["abs_x"] - rect.left) * ratio_x)
+            crop_y = int((env["abs_y"] - rect.top) * ratio_y)
+            physical_res_w = int(env["res_w"] * ratio_x)
+            physical_res_h = int(env["res_h"] * ratio_y)
+
+            y1, y2 = max(0, crop_y), min(h, crop_y + physical_res_h)
+            x1, x2 = max(0, crop_x), min(w, crop_x + physical_res_w)
 
             client_frame = frame[y1:y2, x1:x2]
             if client_frame.size == 0:
                 return None
+
+            if client_frame.shape[1] != env["res_w"] or client_frame.shape[0] != env["res_h"]:
+                client_frame = cv2.resize(client_frame, (env["res_w"], env["res_h"]), interpolation=cv2.INTER_AREA)
 
             return cv2.cvtColor(client_frame, cv2.COLOR_BGRA2BGR)
 

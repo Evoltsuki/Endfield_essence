@@ -55,16 +55,13 @@ class VisionAnalyzer:
             if search_area.shape[0] < template.shape[0] or search_area.shape[1] < template.shape[1]:
                 return False
 
-            # 使用 Canny 边缘检测提取轮廓线条
-            template_edges = cv2.Canny(template, 50, 150)
-            search_edges = cv2.Canny(search_area, 50, 150)
+            _, tpl_bin = cv2.threshold(template, 100, 255, cv2.THRESH_BINARY)
+            _, search_bin = cv2.threshold(search_area, 100, 255, cv2.THRESH_BINARY)
 
-            # 基于边缘图进行模板匹配
-            res = cv2.matchTemplate(search_edges, template_edges, cv2.TM_CCOEFF_NORMED)
+            res = cv2.matchTemplate(search_bin, tpl_bin, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
 
-            # 纯线条特征匹配度阈值判定
-            return max_val > 0.40
+            return max_val > 0.80
 
         except Exception:
             return False

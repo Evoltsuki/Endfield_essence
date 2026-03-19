@@ -26,6 +26,9 @@ class AutoScanner:
         except Exception as e:
             self.log_cb(f"[异常] {e}\n{traceback.format_exc()}", "red")
         finally:
+            if not self.running:
+                self.log_cb("[系统] 扫描已终止", "blue")
+
             self.running = False
             self.finish_cb()
 
@@ -42,7 +45,7 @@ class AutoScanner:
             return
 
         env = layout["env"]
-        self.log_cb(f"[适配] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
+        self.log_cb(f"[系统]] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
 
         total_rows = 0
         final_sweep_mode = False
@@ -60,7 +63,7 @@ class AutoScanner:
             self.log_cb("[错误] 未检测到基质界面，请按N键打开游戏内的基质背包！", "red")
             return
 
-        self.log_cb("[系统] 确认当前处于基质界面", "green")
+        self.log_cb("[系统] 确认当前处于基质界面", "blue")
 
         if win_img is not None:
             total_count = self.analyzer.get_inventory_count(win_img, layout["inventory_count_roi"])
@@ -141,11 +144,12 @@ class AutoScanner:
                 bx1, by1, bx2, by2 = b
                 cx, cy = (bx1 + bx2) // 2, (by1 + by2) // 2
 
-                logic_row = total_rows + 1
-                logic_col = physical_col
+                logic_row = total_rows + 1 + (physical_col - 1) // 9
+                logic_col = (physical_col - 1) % 9 + 1
+
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
 
-                click_delay = 0.2 if cfg_skip_marked else 0.15
+                click_delay = 0.25 if cfg_skip_marked else 0.15
                 self.controller.click_at(abs_cx, abs_cy, delay=click_delay)
 
                 scr = self.controller.capture_window_bg(env)
@@ -187,6 +191,8 @@ class AutoScanner:
                             self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.15)
                             quick_log("-> 已执行锁定指令", "blue")
                             self.controller.move_rel(50, 50)
+                        else:
+                            quick_log("-> 该基质已锁定，跳过", "gray")
 
                         self.lock_cb({
                             "weapons": matched_weapons,
@@ -195,11 +201,14 @@ class AutoScanner:
                             "col": logic_col
                         })
                     else:
-                        quick_log("判定为垃圾基质，准备废弃", "gray")
+                        quick_log("判定为无用基质，准备废弃", "black")
+
                         if not self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"]):
                             self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.15)
                             quick_log("-> 已执行废弃指令", "gray")
                             self.controller.move_rel(50, 50)
+                        else:
+                            quick_log("-> 该基质已废弃，跳过", "gray")
                 else:
                     quick_log(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                     quick_log("-> 未读到词条", "red")
@@ -218,7 +227,7 @@ class AutoScanner:
                 break
 
             if physical_items_count == 9:
-                self.log_cb("[翻页] 正在向下滑动...", "black")
+                self.log_cb("[操作] 正在向下滑动...", "black")
                 dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
                 self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], dist)
                 total_rows += 1
