@@ -19,8 +19,8 @@ def main():
     if not run_as_admin():
         return
 
+    # 注册全局异常处理器
     sys.excepthook = handle_exception
-
     root = tk.Tk()
 
     # 注入依赖与实例化核心模块

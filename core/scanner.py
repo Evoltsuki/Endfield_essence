@@ -45,7 +45,7 @@ class AutoScanner:
             return
 
         env = layout["env"]
-        self.log_cb(f"[系统]] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
+        self.log_cb(f"[系统] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
 
         total_rows = 0
         final_sweep_mode = False
@@ -56,7 +56,7 @@ class AutoScanner:
 
         win_img = self.controller.capture_window_bg(env)
         if win_img is None:
-            self.log_cb("[错误] 后台截图失败，请检查游戏窗口", "red")
+            self.log_cb("[错误] 截图失败，请确保游戏窗口未处于最小化状态", "red")
             return
 
         if not self.analyzer.is_on_essence_page(win_img, layout["inventory_tab_roi"], env["ui_scale"]):
@@ -76,7 +76,7 @@ class AutoScanner:
         while self.running:
             win_img = self.controller.capture_window_bg(env)
             if win_img is None:
-                self.log_cb("[错误] 后台截图失败", "red")
+                self.log_cb("[错误] 截图失败，扫描中断", "red")
                 break
 
             current_roi = layout["roi_final"] if final_sweep_mode else layout["roi_row1"]
@@ -91,6 +91,7 @@ class AutoScanner:
                 bx1, by1, bx2, by2 = b
                 box_img = win_img[by1:by2, bx1:bx2]
 
+                # 通过中心区域亮度判定来过滤掉空位
                 ch, cw = box_img.shape[:2]
                 center_roi = box_img[int(ch * 0.3):int(ch * 0.7), int(cw * 0.3):int(cw * 0.7)]
                 if center_roi.size > 0:
@@ -104,7 +105,7 @@ class AutoScanner:
                 if is_gold_item:
                     gold_items_count += 1
 
-                # 扩边截取缩略图以防止图标边缘被裁剪
+                # 扩大判定框以检测左下角的锁/废弃标记
                 margin = int(10 * env["ui_scale"])
                 ex1 = max(0, bx1 - margin)
                 ey1 = max(0, by1 - margin)
@@ -112,14 +113,14 @@ class AutoScanner:
                 ey2 = min(win_img.shape[0], by2 + margin)
                 expanded_box_img = win_img[ey1:ey2, ex1:ex2]
 
-                # 缩略图前置过滤已处理的基质
+                # 前置过滤已标记的基质
                 if cfg_skip_marked and self.analyzer.is_thumb_marked(expanded_box_img, env["ui_scale"], self.log_cb):
                     continue
 
                 if cfg_debug_gold or is_gold_item:
                     valid_boxes.append((b, is_gold_item, physical_items_count))
 
-            # 行状态判定与提示
+            # 翻页结束条件判定
             if physical_items_count == 0:
                 if not final_sweep_mode:
                     self.log_cb("[系统] 探测行未发现基质，触发全局尾扫模式...", "blue")
@@ -149,7 +150,8 @@ class AutoScanner:
 
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
 
-                click_delay = 0.25 if cfg_skip_marked else 0.15
+                # 执行物理点击，弹出词条详情面板
+                click_delay = 0.25
                 self.controller.click_at(abs_cx, abs_cy, delay=click_delay)
 
                 scr = self.controller.capture_window_bg(env)
@@ -157,6 +159,7 @@ class AutoScanner:
                 lock_rel_pos = (layout["lock_btn"][0] - env["abs_x"], layout["lock_btn"][1] - env["abs_y"])
                 discard_rel_pos = (layout["discard_btn"][0] - env["abs_x"], layout["discard_btn"][1] - env["abs_y"])
 
+                # 二次校验
                 if cfg_skip_marked:
                     is_locked = self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"])
                     is_discarded = self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"])
@@ -169,12 +172,14 @@ class AutoScanner:
                 roi_x, roi_y, roi_w, roi_h = layout["roi"]
                 o_img = scr[roi_y: roi_y + roi_h, roi_x: roi_x + roi_w]
 
+                # 识别当前点击的基质词条
                 display_str, skills, levels = self.analyzer.recognize_and_parse(o_img)
 
                 if display_str:
                     quick_log(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                     quick_log(f"识别结果: {display_str}", "green")
 
+                    # 根据词条内容匹配武器库，判断是否为毕业或潜力基质
                     is_keep, matched_weapons, match_type = self.analyzer.check_all_attributes(
                         self.dm.weapon_list, skills, levels, is_gold_item, cfg_ignore_5star
                     )
@@ -190,7 +195,6 @@ class AutoScanner:
                         if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
                             self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.15)
                             quick_log("-> 已执行锁定指令", "blue")
-                            self.controller.move_rel(50, 50)
                         else:
                             quick_log("-> 该基质已锁定，跳过", "gray")
 
@@ -206,7 +210,6 @@ class AutoScanner:
                         if not self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"]):
                             self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.15)
                             quick_log("-> 已执行废弃指令", "gray")
-                            self.controller.move_rel(50, 50)
                         else:
                             quick_log("-> 该基质已废弃，跳过", "gray")
                 else:

@@ -2,13 +2,11 @@ import os
 import sys
 import ctypes
 
-
 def resource_path(relative_path):
-    """获取资源绝对路径 (兼容 PyInstaller 打包环境)"""
+    """获取资源绝对路径"""
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.abspath("."), relative_path)
-
 
 def run_as_admin():
     """检测当前权限并尝试以管理员身份重新运行程序"""
@@ -25,7 +23,6 @@ def run_as_admin():
         return False
     except Exception:
         return False
-
 
 def setup_dpi_awareness():
     """开启 Windows 高 DPI 适配"""

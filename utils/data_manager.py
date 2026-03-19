@@ -3,7 +3,6 @@ import json
 import csv
 from tkinter import messagebox
 
-
 class DataManager:
     def __init__(self):
         self.config_file = "data/config.json"
