@@ -1,16 +1,21 @@
 import cv2
 import win32gui
-import win32con
 import ctypes
 import time
 import threading
-from ctypes.wintypes import HWND, RECT, DWORD
+import platform
+from ctypes.wintypes import HWND, RECT, DWORD, POINT
 from tkinter import messagebox
-import pydirectinput
 
-# 取消 pydirectinput 默认延迟和安全控制
-pydirectinput.PAUSE = 0.01
-pydirectinput.FAILSAFE = False
+"""强制获取当前系统的 DPI 配置"""
+if platform.system() == "Windows":
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            pass
 
 from core.layout import BASE_LAYOUT
 
@@ -23,6 +28,14 @@ except ImportError as e:
     HAS_WGC = False
     WGC_IMPORT_ERROR = str(e)
 
+# Windows API 消息常量
+WM_ACTIVATE = 0x0006
+WA_ACTIVE = 1
+WM_MOUSEMOVE = 0x0200
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
+
 
 class DeviceController:
     def __init__(self):
@@ -34,18 +47,26 @@ class DeviceController:
 
     def get_window_env(self):
         """获取目标游戏窗口句柄及坐标信息"""
+        # 寻找游戏窗口
         hwnd = win32gui.FindWindow(None, 'Endfield') or win32gui.FindWindow(None, '终末地')
         if not hwnd:
             return None
 
+        # 拦截最小化状态
+        if win32gui.IsIconic(hwnd):
+            return None
+
+        # 获取窗口客户区大小
         left, top, right, bottom = win32gui.GetClientRect(hwnd)
         res_w, res_h = right - left, bottom - top
         if res_w == 0 or res_h == 0:
             return None
 
+        # 获取窗口在屏幕中的绝对坐标
         pt = win32gui.ClientToScreen(hwnd, (0, 0))
         abs_x, abs_y = pt[0], pt[1]
 
+        # 计算 UI 缩放比例
         base_w, base_h = 1280.0, 720.0
         ui_scale = min(res_w / base_w, res_h / base_h)
 
@@ -107,7 +128,7 @@ class DeviceController:
         }
 
     def _start_wgc_engine(self, title, hide_border=True):
-        """启动 Windows Graphics Capture 引擎以获取后台画面"""
+        """启动WGC引擎获取后台画面"""
         try:
             if hide_border:
                 capture = WindowsCapture(window_name=title, cursor_capture=False, draw_border=False)
@@ -133,7 +154,7 @@ class DeviceController:
                 self.wgc_error = f"引擎启动失败: {e}"
 
     def capture_window_bg(self, env):
-        """执行后台截图"""
+        """执行截图"""
         hwnd = env["hwnd"]
         res_w, res_h = env["res_w"], env["res_h"]
 
@@ -144,6 +165,7 @@ class DeviceController:
         try:
             title = win32gui.GetWindowText(hwnd)
 
+            # 标题变化或引擎未启动时重拉 WGC
             if self.wgc_title != title or self.wgc_thread is None or not self.wgc_thread.is_alive():
                 self.wgc_title = title
                 self.wgc_frame = None
@@ -151,6 +173,7 @@ class DeviceController:
                 self.wgc_thread = threading.Thread(target=self._start_wgc_engine, args=(title,), daemon=True)
                 self.wgc_thread.start()
 
+            # 等待画面获取
             timeout = 2.5
             start_t = time.time()
             while self.wgc_frame is None and time.time() - start_t < timeout:
@@ -171,19 +194,34 @@ class DeviceController:
                 messagebox.showerror("超时", "画面获取超时，请检查游戏窗口状态。")
                 return None
 
+            # DWM 计算游戏客户区大小并裁切边框
             rect = RECT()
             ctypes.windll.dwmapi.DwmGetWindowAttribute(HWND(hwnd), DWORD(9), ctypes.byref(rect), ctypes.sizeof(rect))
 
-            crop_x = env["abs_x"] - rect.left
-            crop_y = env["abs_y"] - rect.top
-
+            # 计算 WGC物理画面 与 win32gui逻辑坐标 之间的误差比例
+            logical_w = rect.right - rect.left
+            logical_h = rect.bottom - rect.top
             h, w = frame.shape[:2]
-            y1, y2 = max(0, crop_y), min(h, crop_y + res_h)
-            x1, x2 = max(0, crop_x), min(w, crop_x + res_w)
+
+            ratio_x = w / logical_w if logical_w > 0 else 1.0
+            ratio_y = h / logical_h if logical_h > 0 else 1.0
+
+            # 按比例映射真正的物理裁剪坐标
+            crop_x = int((env["abs_x"] - rect.left) * ratio_x)
+            crop_y = int((env["abs_y"] - rect.top) * ratio_y)
+            physical_res_w = int(env["res_w"] * ratio_x)
+            physical_res_h = int(env["res_h"] * ratio_y)
+
+            y1, y2 = max(0, crop_y), min(h, crop_y + physical_res_h)
+            x1, x2 = max(0, crop_x), min(w, crop_x + physical_res_w)
 
             client_frame = frame[y1:y2, x1:x2]
             if client_frame.size == 0:
                 return None
+
+            # 修正画面缩放
+            if client_frame.shape[1] != env["res_w"] or client_frame.shape[0] != env["res_h"]:
+                client_frame = cv2.resize(client_frame, (env["res_w"], env["res_h"]), interpolation=cv2.INTER_AREA)
 
             return cv2.cvtColor(client_frame, cv2.COLOR_BGRA2BGR)
 
@@ -191,47 +229,98 @@ class DeviceController:
             messagebox.showerror("异常", f"捕获过程出错：\n{e}")
             return None
 
-    def _ensure_foreground(self, hwnd):
-        """确保游戏窗口置顶以接收鼠标事件"""
-        if win32gui.GetForegroundWindow() != hwnd:
-            try:
-                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-                win32gui.SetForegroundWindow(hwnd)
-            except Exception:
-                pass
+    def _send_activate_bg(self, hwnd):
+        """发送激活消息，保持窗口接收输入状态"""
+        if not hwnd:
+            return
+        ctypes.windll.user32.SendMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+        time.sleep(0.01)
+
+    def _make_lparam(self, x, y):
+        """打包相对坐标为 lParam 结构"""
+        return ((int(y) & 0xFFFF) << 16) | (int(x) & 0xFFFF)
 
     def click_at(self, x, y, delay=0.0):
-        """执行鼠标点击操作"""
+        """执行点击操作"""
         env = self.get_window_env()
         if not env:
             return
 
-        self._ensure_foreground(env["hwnd"])
-        pydirectinput.click(int(x), int(y))
+        hwnd = env["hwnd"]
+        user32 = ctypes.windll.user32
+
+        # 保存并记录物理鼠标位置
+        pt = POINT()
+        user32.GetCursorPos(ctypes.byref(pt))
+        original_x, original_y = pt.x, pt.y
+
+        client_x = x - env["abs_x"]
+        client_y = y - env["abs_y"]
+        lparam = self._make_lparam(client_x, client_y)
+
+        self._send_activate_bg(hwnd)
+
+        # 瞬移物理鼠标以应对游戏引擎的安全校验
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.01)
+
+        user32.SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, lparam)
+        user32.SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
+        time.sleep(0.03)
+        user32.SendMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+
+        # 点击结束恢复原位置
+        user32.SetCursorPos(original_x, original_y)
 
         if delay > 0:
             time.sleep(delay)
 
     def move_rel(self, x_offset, y_offset):
-        """执行鼠标相对移动操作"""
-        pydirectinput.moveRel(int(x_offset), int(y_offset))
+        pass
 
     def swipe_up(self, start_x, start_y, distance):
-        """执行平滑的向上滑动操作"""
+        """执行滑动操作"""
         env = self.get_window_env()
         if not env:
             return
 
-        self._ensure_foreground(env["hwnd"])
+        hwnd = env["hwnd"]
+        user32 = ctypes.windll.user32
 
-        pydirectinput.moveTo(int(start_x), int(start_y))
-        pydirectinput.mouseDown()
+        # 保存并记录物理鼠标位置
+        pt = POINT()
+        user32.GetCursorPos(ctypes.byref(pt))
+        original_x, original_y = pt.x, pt.y
+
+        client_x = start_x - env["abs_x"]
+        client_y = start_y - env["abs_y"]
+
+        self._send_activate_bg(hwnd)
+
+        user32.SetCursorPos(int(start_x), int(start_y))
+        time.sleep(0.01)
+
+        lparam_start = self._make_lparam(client_x, client_y)
+        user32.SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam_start)
+        time.sleep(0.05)
 
         steps = 10
         for s in range(1, steps + 1):
-            pydirectinput.moveTo(int(start_x), int(start_y - (distance * (s / steps))))
-            time.sleep(0.01)
+            current_y_client = client_y - (distance * (s / steps))
+            current_y_screen = start_y - (distance * (s / steps))
+
+            lparam_move = self._make_lparam(client_x, current_y_client)
+
+            user32.SetCursorPos(int(start_x), int(current_y_screen))
+            user32.SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, lparam_move)
+            time.sleep(0.02)
 
         time.sleep(0.7)
-        pydirectinput.mouseUp()
+
+        lparam_end = self._make_lparam(client_x, client_y - distance)
+        user32.SendMessageW(hwnd, WM_LBUTTONUP, 0, lparam_end)
+        time.sleep(0.05)
+
+        # 恢复原位置
+        user32.SetCursorPos(original_x, original_y)
         time.sleep(0.1)

@@ -8,12 +8,9 @@ from opencc import OpenCC
 from tkinter import messagebox
 from utils.sys_helper import resource_path
 
-
 class VisionAnalyzer:
     def __init__(self, data_manager):
         self.dm = data_manager
-
-        # 武器数据解析缓存
         self._cached_weapon_list_id = None
         self._cleaned_weapons_cache = []
 
@@ -23,8 +20,8 @@ class VisionAnalyzer:
                 intra_op_num_threads=4,
                 det_limit_side_len=640,
                 det_limit_type='max',
-                det_unclip_ratio=2.5,   # 提高膨胀比例，防止边缘细小字符漏检
-                det_box_thresh=0.3      # 降低置信度阈值，提升识别率
+                det_unclip_ratio=2.5,
+                det_box_thresh=0.3
             )
             self.cc = OpenCC('t2s')
         except Exception as e:
@@ -36,11 +33,13 @@ class VisionAnalyzer:
             template_path = resource_path(os.path.join("img", "EssenceSlot.png"))
             template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
             if template is None:
-                print("[警告] 未找到 EssenceSlot.png，跳过界面检测")
+                if hasattr(self, 'log_cb'):
+                    self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
                 return True
 
             if scale != 1.0:
-                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+                inter = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=inter)
 
             rx, ry, rw, rh = roi
             margin = int(5 * scale)
@@ -65,21 +64,73 @@ class VisionAnalyzer:
             rx, ry, rw, rh = roi
             crop_img = window_img[max(0, ry):ry + rh, max(0, rx):rx + rw]
             if crop_img.size == 0:
-                return 325  # 识别失败时默认返回数字，走常规滑动流程
+                return 325
 
             gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+            # 三次立方放大，提高小数字 OCR 准确率
             resized = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
 
             res, _ = self.ocr(resized, use_cls=False)
             if res:
                 txt = str(res[0][1])
-                import re
                 match = re.search(r'(\d+)', txt)
                 if match:
                     return int(match.group(1))
         except Exception:
             pass
         return 325
+
+    def is_thumb_marked(self, box_img, scale, log_cb=None):
+        """检测基质左下角是否有上锁/废弃的图标"""
+        try:
+            h, w = box_img.shape[:2]
+            corner = box_img[int(h * 0.65):, :int(w * 0.30)]
+            corner_gray = cv2.cvtColor(corner, cv2.COLOR_BGR2GRAY)
+
+            if scale != 1.0:
+                inv_scale = 1.0 / scale
+                inter = cv2.INTER_AREA if inv_scale < 1.0 else cv2.INTER_CUBIC
+                corner_gray = cv2.resize(corner_gray, None, fx=inv_scale, fy=inv_scale, interpolation=inter)
+
+            img_dir = resource_path("img")
+            if not os.path.exists(img_dir):
+                return False
+
+            def check_icon(prefix):
+                files = [f for f in os.listdir(img_dir) if f.startswith(prefix) and f.endswith(".png")]
+                if not files:
+                    return False
+
+                best_val = 0.0
+                for f in files:
+                    tpl_path = os.path.join(img_dir, f)
+                    tpl = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+                    if tpl is None:
+                        continue
+
+                    if corner_gray.shape[0] < tpl.shape[0] or corner_gray.shape[1] < tpl.shape[1]:
+                        if log_cb and not getattr(self, f"_warned_size_{f}", False):
+                            log_cb(f"[警告] 模板 {f} 尺寸过大，无法进行缩略图匹配", "red")
+                            setattr(self, f"_warned_size_{f}", True)
+                        continue
+
+                    res = cv2.matchTemplate(corner_gray, tpl, cv2.TM_CCOEFF_NORMED)
+                    _, max_val, _, _ = cv2.minMaxLoc(res)
+                    if max_val > best_val:
+                        best_val = max_val
+
+                return best_val > 0.65
+
+            if check_icon("ThumbDiscard") or check_icon("ThumbLock"):
+                return True
+
+            return False
+
+        except Exception as e:
+            if log_cb and not getattr(self, "_warned_thumb_err", False):
+                log_cb(f"[警告] 缩略图识别异常: {e}", "red")
+                self._warned_thumb_err = True
+            return False
 
     def parse_ocr_lines(self, res):
         """解析 OCR 识别结果，提取技能名称与等级"""
@@ -90,12 +141,11 @@ class VisionAnalyzer:
         for line in res:
             txt = self.cc.convert(str(line[1]))
 
-            # 应用用户自定义错字纠正字典
+            # 应用自定义错字纠正字典
             if self.dm.corrections:
                 for w in sorted(self.dm.corrections.keys(), key=len, reverse=True):
                     txt = txt.replace(w, self.dm.corrections[w])
 
-            # 常见相似字符容错替换
             txt = txt.replace('|', '').replace('I', '1').replace('l', '1')
             txt = txt.replace('个', '1').replace('十', '+')
 
@@ -104,7 +154,7 @@ class VisionAnalyzer:
             if skill_name:
                 skills.append(skill_name)
 
-            # 提取数字作为技能等级（限 1-6）
+            # 提取数字作为技能等级
             nums = re.findall(r'[+＋]?(\d)', txt)
             for n in nums:
                 if 1 <= int(n) <= 6:
@@ -127,14 +177,12 @@ class VisionAnalyzer:
 
         # 灰度化处理
         gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-
-        # 反色处理：将黑底白字转换为白底黑字，增强文字边缘特征
+        # 反色处理
         inverted = cv2.bitwise_not(gray)
-
-        # 边缘填充：增加 20 像素白边，防止贴边字符被裁剪
+        # 边缘填充
         padded = cv2.copyMakeBorder(inverted, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
-        # 动态标准化缩放：固定计算高度为 180 像素
+        # 标准化缩放
         h, w = padded.shape[:2]
         target_h = 180
         scale = target_h / h
@@ -145,27 +193,25 @@ class VisionAnalyzer:
         else:
             processed_img = padded
 
-        # 执行文本识别（关闭方向分类器以降低计算开销）
+        # 执行文本识别
         res, _ = self.ocr(processed_img, use_cls=False)
-
         return self.parse_ocr_lines(res)
 
     def clean_csv_text(self, raw):
-        """清理并转换 CSV 文本数据"""
+        """格式化 CSV 武器数据"""
         if not raw:
             return ""
         txt = self.cc.convert(str(raw))
         return re.sub(r'[^\u4e00-\u9fff]', '', txt)
 
-    def check_all_attributes(self, weapon_list, skills, levels, is_gold_item=True):
-        """比对技能与武器数据，判断是否符合锁定条件"""
+    def check_all_attributes(self, weapon_list, skills, levels, is_gold_item=True, ignore_5star=False):
+        """比对词条是否武器词条库匹配"""
         if not skills:
             return False, [], ""
 
         matched_weapons = []
         cleaned_skills = [s.replace("提升", "") for s in skills]
 
-        # 检查武器列表更新状态，使用缓存加速遍历
         current_list_id = id(weapon_list)
         if current_list_id != self._cached_weapon_list_id:
             self._cleaned_weapons_cache = []
@@ -175,9 +221,12 @@ class VisionAnalyzer:
                 self._cleaned_weapons_cache.append((weapon.get('武器', '未知'), str(weapon.get('星级', '6星')), ts))
             self._cached_weapon_list_id = current_list_id
 
-        # 毕业武器匹配校验
+        # 执行模糊匹配策略
         for w_name, w_star, ts in self._cleaned_weapons_cache:
             if not ts:
+                continue
+
+            if ignore_5star and "5" in w_star:
                 continue
 
             h_hits, p_hits = 0, 0
@@ -194,7 +243,7 @@ class VisionAnalyzer:
                         best_r, b_idx = 1.0, i
                         break
 
-                    # 兜底使用模糊匹配计算相似度
+                    # 使用模糊匹配计算相似度
                     r = difflib.SequenceMatcher(None, t_c, p).ratio()
                     if r > best_r:
                         best_r, b_idx = r, i
@@ -206,7 +255,6 @@ class VisionAnalyzer:
                     p_hits += 1
                     m_idx.add(b_idx)
 
-            # 判定条件：全部高精度命中，或差一条但辅以部分匹配
             if (h_hits == len(ts)) or (h_hits >= len(ts) - 1 and (h_hits + p_hits) >= len(ts)):
                 matched_weapons.append((w_name, w_star))
 
@@ -215,7 +263,6 @@ class VisionAnalyzer:
 
         # 潜力基质判定
         if is_gold_item:
-            # 金色基质锁定逻辑：总等级>=6且有二字词条，或者有单条二字三级词条
             has_two_char_skill = any(len(s) == 2 for s in skills)
             if sum(levels) >= 6 and has_two_char_skill:
                 return True, [("潜力基质", "5星")], "potential"
@@ -224,9 +271,6 @@ class VisionAnalyzer:
                 if len(s) == 2 and l == 3:
                     return True, [("潜力基质", "5星")], "potential"
         else:
-            # 紫色基质锁定逻辑：
-            # 1. 有二字词条且为 3 级 -> 锁定
-            # 2. 有二字词条且为 2 级，且词条总等级 >= 6
             total_levels = sum(levels)
             for s, l in zip(skills, levels):
                 if len(s) == 2:
@@ -238,14 +282,13 @@ class VisionAnalyzer:
         return False, [], ""
 
     def is_gold(self, bgr):
-        """通过 HSV 色彩空间判断基质是否为金色品质"""
+        """判定基质稀有度"""
         try:
             h, w = bgr.shape[:2]
             strip = bgr[int(h * 0.75):, int(w * 0.15):int(w * 0.85)]
-
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
+            # 锁定金色基质的特定 HSV 色值段
             mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([35, 255, 255]))
-
             return (np.sum(mask > 0) / mask.size) > 0.08
         except Exception:
             return False
@@ -278,7 +321,7 @@ class VisionAnalyzer:
             return False
 
     def find_essences_with_mask(self, window_img, roi, scale):
-        """在指定区域内通过掩码模板匹配寻找基质坐标"""
+        """获取列表内基质的位置"""
         try:
             template_path = resource_path(os.path.join("img", "EssenceGeneral.png"))
             template_bgr = cv2.imread(template_path, cv2.IMREAD_COLOR)
@@ -288,7 +331,6 @@ class VisionAnalyzer:
             if scale != 1.0:
                 template_bgr = cv2.resize(template_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
-            # 使用绿色掩码过滤画面干扰
             lower_green, upper_green = np.array([0, 240, 0]), np.array([10, 255, 10])
             green_mask = cv2.inRange(template_bgr, lower_green, upper_green)
             valid_mask = cv2.bitwise_not(green_mask)
@@ -308,7 +350,7 @@ class VisionAnalyzer:
             boxes = [[pt[0] + rx, pt[1] + ry, pt[0] + rx + tw, pt[1] + ry + th] for pt in zip(*loc[::-1])]
             boxes = sorted(boxes, key=lambda x: (x[1], x[0]))
 
-            # 过滤重叠区域
+            # 过滤重叠检测框
             final_boxes = []
             for b in boxes:
                 cx, cy = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
@@ -328,9 +370,9 @@ class VisionAnalyzer:
             return []
 
     def is_already_locked_bg(self, window_img, lock_pos, scale):
-        """检查基质是否处于已锁定状态"""
+        """检查基质面板上的锁定按钮是否为激活状态"""
         return self._template_match(window_img, lock_pos, "LockButtonLocked.png", scale)
 
     def is_already_discarded_bg(self, window_img, discard_pos, scale):
-        """检查基质是否处于已废弃状态"""
+        """检查基质面板上的废弃按钮是否为激活状态"""
         return self._template_match(window_img, discard_pos, "DiscardButtonDiscarded.png", scale)

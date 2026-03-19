@@ -20,7 +20,7 @@ class MatrixAssistantApp:
         self.app_width = 530
         self.app_height = 800
 
-        self.root.title("毕业基质自动识别工具beta v2.8 -by洁柔厨")
+        self.root.title("毕业基质自动识别工具beta v3.1 -by洁柔厨")
         self.root.attributes("-topmost", True)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -146,7 +146,7 @@ class MatrixAssistantApp:
         self.paned_window.add(log_pane, stretch="always", minsize=100)
 
         tk.Label(log_pane, text="实时日志:", font=("微软雅黑", 11, "bold")).pack(anchor="w")
-        self.log_area = scrolledtext.ScrolledText(log_pane, height=5, font=("微软雅黑", 10), relief="solid",
+        self.log_area = scrolledtext.ScrolledText(log_pane, height=7, font=("微软雅黑", 10), relief="solid",
                                                   borderwidth=1)
         self.log_area.pack(pady=(2, 5), fill="both", expand=True)
 
@@ -225,7 +225,6 @@ class MatrixAssistantApp:
         """监听快捷键事件"""
         if hasattr(k, 'char') and k.char == 'b':
             if self.scanner and self.scanner.running:
-                self.gui_log("[停止] 已发送停止指令，请等待当前操作完成...", "red")
                 self.scanner.stop()
 
     def save_ui_config(self):
