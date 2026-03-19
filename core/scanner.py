@@ -42,13 +42,27 @@ class AutoScanner:
         return tuple(sorted(centers))
 
     def _signatures_similar(self, sig1, sig2, threshold=20):
-        """比较两个签名是否相似"""
+        """比较两个签名是否相似
+
+        threshold: 基础像素阈值，会按当前 ui_scale 线性缩放，以保证不同缩放下行为一致。
+        """
         if sig1 is None or sig2 is None:
             return False
         if len(sig1) != len(sig2):
             return False
+
+        # 按 ui_scale 线性缩放阈值，避免在高/低缩放下误判
+        ui_scale = getattr(self, "ui_scale", 1.0)
+        try:
+            ui_scale = float(ui_scale)
+        except (TypeError, ValueError):
+            ui_scale = 1.0
+        if ui_scale <= 0:
+            ui_scale = 1.0
+        eff_threshold = threshold * ui_scale
+
         for (x1, y1), (x2, y2) in zip(sig1, sig2):
-            if abs(x1 - x2) > threshold or abs(y1 - y2) > threshold:
+            if abs(x1 - x2) > eff_threshold or abs(y1 - y2) > eff_threshold:
                 return False
         return True
 
@@ -60,6 +74,8 @@ class AutoScanner:
             return
 
         env = layout["env"]
+        # 记录当前 ui_scale，供签名相似度等逻辑按缩放调整阈值
+        self.ui_scale = env.get("ui_scale", 1.0)
         self.log_cb(f"[适配] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
 
         total_rows = 0
