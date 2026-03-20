@@ -7,3 +7,5 @@ pynput==1.8.1
 pywin32==311
 rapidocr-onnxruntime==1.4.4
 windows-capture==1.5.0
+requests==2.32.3
+beautifulsoup4==4.12.3

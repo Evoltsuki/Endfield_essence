@@ -7,10 +7,12 @@ from pynput import keyboard
 from utils.sys_helper import resource_path
 from gui.windows import show_add_correction_popup, show_weapon_editor_popup
 from core.scanner import AutoScanner
+from core.updateWeaponData import UpdateWeapon
 
 
 class MatrixAssistantApp:
     def __init__(self, root, dm, controller, analyzer):
+        self.updateWeapon = None
         self.root = root
         self.dm = dm
         self.controller = controller
@@ -109,6 +111,10 @@ class MatrixAssistantApp:
 
         self.debug_gold_var = tk.BooleanVar(value=self.dm.data.get("debug_gold", False))
         tk.Checkbutton(filter_lf, text="识别紫色基质", variable=self.debug_gold_var,
+                       command=self.save_ui_config, font=("微软雅黑", 8)).pack(anchor="w", pady=1)
+
+        self.update_weapon_var = tk.BooleanVar(value=self.dm.data.get("update_weapon", False))
+        tk.Checkbutton(filter_lf, text="自动更新基质数据", variable=self.update_weapon_var,
                        command=self.save_ui_config, font=("微软雅黑", 8)).pack(anchor="w", pady=1)
 
         action_f = tk.Frame(header)
@@ -232,6 +238,7 @@ class MatrixAssistantApp:
         self.dm.data["skip_marked"] = self.skip_marked_var.get()
         self.dm.data["ignore_5star"] = self.ignore_5star_var.get()
         self.dm.data["debug_gold"] = self.debug_gold_var.get()
+        self.dm.data["update_weapon"] = self.update_weapon_var.get()
         self.dm.save_config()
 
     def start_thread(self):
@@ -245,13 +252,22 @@ class MatrixAssistantApp:
         self.lock_list_area.delete('1.0', tk.END)
         self.locked_history.clear()
 
-        self.gui_log("[系统] 扫描启动，按 'B' 键停止", "blue")
-        self.run_btn.config(state="disabled", text="正在扫描...")
-
         callbacks = {
             "log": self.gui_log,
             "lock": self.add_to_lock_list,
             "finish": self.on_scan_finish
         }
+        self.updateWeapon = UpdateWeapon(self.dm, callbacks)
+
+        def run_update_weapon_and_continue():
+            self.updateWeapon.__run__()
+            self.root.after(0, self.after_update_weapon(callbacks))
+
+        threading.Thread(target=run_update_weapon_and_continue, daemon=True).start()
+
+    def after_update_weapon(self,callbacks):
+        self.gui_log("[系统] 开始启动扫描，按 'B' 键停止", "blue")
+        self.run_btn.config(state="disabled", text="正在扫描...")
+
         self.scanner = AutoScanner(self.dm, self.controller, self.analyzer, callbacks)
         threading.Thread(target=self.scanner.start, daemon=True).start()
