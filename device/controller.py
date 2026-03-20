@@ -1,6 +1,7 @@
 import cv2
 import win32gui
 import ctypes
+import random
 import time
 import threading
 import platform
@@ -268,20 +269,32 @@ class DeviceController:
         user32.GetCursorPos(ctypes.byref(pt))
         original_x, original_y = pt.x, pt.y
 
-        client_x = x - env["abs_x"]
-        client_y = y - env["abs_y"]
+        # 引入轻微随机偏移，防止点到边缘死角
+        offset_x = random.randint(-5, 5)
+        offset_y = random.randint(-5, 5)
+        target_x = x + offset_x
+        target_y = y + offset_y
+
+        client_x = target_x - env["abs_x"]
+        client_y = target_y - env["abs_y"]
         lparam = self._make_lparam(client_x, client_y)
 
         self._send_activate_bg(hwnd)
 
         # 瞬移物理鼠标以应对游戏引擎的安全校验
-        user32.SetCursorPos(int(x), int(y))
-        time.sleep(0.01)
+        user32.SetCursorPos(int(target_x), int(target_y))
+        time.sleep(0.02)  # 移过去后稍微停顿，让游戏引擎确认鼠标悬停
 
         user32.SendMessageW(hwnd, WM_MOUSEMOVE, MK_LBUTTON, lparam)
+        time.sleep(0.01)
+
         user32.SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
-        time.sleep(0.03)
+
+        time.sleep(random.uniform(0.05, 0.08))
+
         user32.SendMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+
+        time.sleep(0.05)
 
         # 点击结束恢复原位置
         user32.SetCursorPos(original_x, original_y)

@@ -51,6 +51,7 @@ class AutoScanner:
 
         total_rows = 0
         final_sweep_mode = False
+        target_row_y = None  # 记录首行基准Y坐标
 
         cfg_skip_marked = self.dm.data.get("skip_marked", False)
         cfg_ignore_5star = self.dm.data.get("ignore_5star", True)
@@ -87,6 +88,7 @@ class AutoScanner:
             physical_items_count = 0
             gold_items_count = 0
             valid_boxes = []
+            all_physical_boxes = []  # 记录所有非空物理基质用于坐标参照
 
             # 过滤无效或非目标品质的物品框
             for b in boxes:
@@ -103,6 +105,8 @@ class AutoScanner:
                         continue
 
                 physical_items_count += 1
+                all_physical_boxes.append(b)  # 记录有效参照物
+
                 is_gold_item = self.analyzer.is_gold(box_img)
                 if is_gold_item:
                     gold_items_count += 1
@@ -121,6 +125,17 @@ class AutoScanner:
 
                 if cfg_debug_gold or is_gold_item:
                     valid_boxes.append((b, is_gold_item, physical_items_count))
+
+            # 动态计算Y轴偏移量
+            drift_y = 0
+            if all_physical_boxes and not final_sweep_mode:
+                current_avg_y = sum((b[1] + b[3]) / 2 for b in all_physical_boxes) / len(all_physical_boxes)
+
+                if target_row_y is None:
+                    target_row_y = current_avg_y
+                else:
+                    drift_y = current_avg_y - target_row_y
+                    drift_y = max(-15, min(15, drift_y))
 
             # 翻页结束条件判定
             if physical_items_count == 0:
@@ -233,8 +248,9 @@ class AutoScanner:
 
             if physical_items_count == 9:
                 self.log_cb("[操作] 正在向下滑动...", "black")
-                dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
-                self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], dist)
+                base_dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
+                actual_dist = int(base_dist + drift_y)  # 应用误差补偿
+                self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], actual_dist)
                 total_rows += 1
             else:
                 self.log_cb("[系统] 基质扫描结束！", "blue")

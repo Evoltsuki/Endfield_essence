@@ -133,6 +133,8 @@ class UpdateWeapon:
             writer.writerow(['武器', '星级', '毕业词条1', '毕业词条2', '毕业词条3', '屏蔽'])
             writer.writerows(final_rows)
 
+        self.dm.weapon_list = self.dm.load_weapon_csv()
+
         # 打印更新结果
         def format_item(item):
             name, star, p3, p4, p5 = item[:5]
