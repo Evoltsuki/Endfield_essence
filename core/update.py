@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 
 weapon_url = 'https://wiki.biligame.com/zmd/%E6%AD%A6%E5%99%A8%E5%9B%BE%E9%89%B4'
 
-# 目前阿B的wiki不需要cookies就能访问，暂时不去逆向页面研究这个cookies了
+# 预留的cookies位
 cookies = {
 }
 
@@ -38,19 +38,13 @@ class UpdateWeapon:
         self.running = False
 
     def export_weapon_data(self, response, csv_filename=None):
-        """
-        从 response 解析武器表格，与现有 CSV 文件（如果存在）增量合并，
-        只处理5/6星且三个词条齐全的武器，最终按“新增 → 修改 → 未变”顺序写入
-
-        :param response: requests.Response 对象或 HTML 字符串
-        :param csv_filename: 输出的 CSV 文件路径；若为 None，则使用默认路径 'data/weapon_data.csv'
-        """
-        # ---------- 确定 CSV 路径 ----------
+        """从 response 解析武器表格，与现有 CSV 文件增量合并"""
+        # 确定 CSV 路径
         if csv_filename is None:
             base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             csv_filename = os.path.join(base_dir, 'data', 'weapon_data.csv')
 
-        # ---------- 1. 解析新数据 ----------
+        # 解析新数据
         html = response.text if hasattr(response, 'text') else response
         soup = BeautifulSoup(html, 'html.parser')
         table = soup.find('table', id='CardSelectTr')
@@ -83,7 +77,7 @@ class UpdateWeapon:
 
             raw_new_data.append([weapon_name, star_text, param3, param4, param5])
 
-        # ---------- 2. 过滤：只保留5/6星且三个词条齐全的武器 ----------
+        # 保留5/6星且三个词条齐全的武器
         filtered_new_data = []
         for item in raw_new_data:
             name, star, p3, p4, p5 = item
@@ -93,80 +87,77 @@ class UpdateWeapon:
                 continue
             filtered_new_data.append(item)
 
-        # ---------- 3. 读取现有 CSV（如果存在） ----------
-        existing_rows = []  # 保持原始顺序的列表，每个元素是 [武器,星级,词条1,词条2,词条3]
-        name_to_existing = {}  # 武器名 -> (索引, 数据列表) ，假设武器名唯一
+        # 读取现有 CSV
+        existing_rows = []
+        name_to_existing = {}
 
         if os.path.isfile(csv_filename):
             with open(csv_filename, 'r', encoding='utf-8-sig', newline='') as f:
                 reader = csv.reader(f)
-                headers = next(reader)  # 跳过表头
+                headers = next(reader)
+                shield_idx = headers.index("屏蔽") if "屏蔽" in headers else -1
                 for idx, row in enumerate(reader):
                     if len(row) >= 5:
                         name = row[0].strip()
                         data = [row[1].strip(), row[2].strip(), row[3].strip(), row[4].strip()]
-                        existing_rows.append([name] + data)
-                        name_to_existing[name] = (idx, [name] + data)  # 存储完整行以备后续比较
+                        shield_val = row[shield_idx].strip() if shield_idx != -1 and len(row) > shield_idx else ""
+                        existing_rows.append([name] + data + [shield_val])
+                        name_to_existing[name] = (idx, [name] + data, shield_val)
 
-        # ---------- 4. 比较并分类：新增、修改 ----------
-        new_additions = []  # 新增行（按解析顺序）
-        modifications = []  # 修改行（按解析顺序）
-        modified_names = set()  # 记录被修改的武器名，用于后续跳过
+        new_additions = []
+        modifications = []
+        modified_names = set()
 
         for new_item in filtered_new_data:
             name, star, p3, p4, p5 = new_item
             if name in name_to_existing:
-                # 已存在，比较字段
-                old_full = name_to_existing[name][1]  # 完整旧行 [name, star, p3, p4, p5]
+                old_full = name_to_existing[name][1]
                 old_data = old_full[1:]
+                shield_val = name_to_existing[name][2]
                 new_data = [star, p3, p4, p5]
                 if new_data != old_data:
-                    # 有更新
-                    modifications.append(new_item)
+                    modifications.append(new_item + [shield_val])
                     modified_names.add(name)
             else:
-                # 新增
-                new_additions.append(new_item)
+                new_additions.append(new_item + [""])  # 新增的默认不屏蔽
 
-        # ---------- 5. 构建最终输出列表（按指定顺序） ----------
         final_rows = []
-        # 5.1 新增行
         final_rows.extend(new_additions)
-        # 5.2 修改行
         final_rows.extend(modifications)
-        # 5.3 未变行（保持原有顺序，跳过被修改的）
         for row in existing_rows:
             if row[0] not in modified_names:
                 final_rows.append(row)
 
-        # ---------- 6. 写回 CSV ----------
+        # 写入 CSV
         with open(csv_filename, 'w', encoding='utf-8-sig', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['武器', '星级', '毕业词条1', '毕业词条2', '毕业词条3'])
+            writer.writerow(['武器', '星级', '毕业词条1', '毕业词条2', '毕业词条3', '屏蔽'])
             writer.writerows(final_rows)
 
-        # ---------- 7. 打印更新结果 ----------
+        # 打印更新结果
         def format_item(item):
-            name, star, p3, p4, p5 = item
-            return f"{name}({star},{p3},{p4},{p5})"
+            name, star, p3, p4, p5 = item[:5]
+            return f"{name} {star} {p3} {p4} {p5}"
 
         def format_item_log(action, items, color):
-            log_lines = [f"已{action}："]
+            log_lines = [f"已{action}武器："]
             log_lines.extend(format_item(it) for it in items)
             self.log_cb("\n".join(log_lines), color)
 
         if new_additions:
             format_item_log("新增", new_additions, "green")
         if modifications:
-            format_item_log("修改", modifications, "gold")
+            format_item_log("修改", modifications, "blue")
+
         if not new_additions and not modifications:
-            self.log_cb("武器数据已是最新，未进行更新", "gold")
-        self.log_cb("[系统] 已完成武器列表更新", "blue")
+            self.log_cb("[系统] 武器数据已是最新", "blue")
+        else:
+            self.log_cb("[系统] 已完成武器列表更新", "blue")
 
     def __run__(self):
-        cfg_update_weapon = self.dm.data.get("update_weapon", False)
-
-        if cfg_update_weapon:
-            self.log_cb("[系统] 开始更新武器列表...", "blue")
-            response = requests.get(weapon_url, cookies=cookies, headers=headers)
+        self.log_cb("[系统] 正在获取武器列表...", "blue")
+        try:
+            response = requests.get(weapon_url, cookies=cookies, headers=headers, timeout=10)
             self.export_weapon_data(response)
+        except Exception as e:
+            self.log_cb(f"[警告] 网络请求失败，跳过武器更新: {e}", "red")

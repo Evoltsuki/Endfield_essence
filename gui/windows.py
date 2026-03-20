@@ -34,7 +34,20 @@ def show_add_correction_popup(root, dm):
         if w_text and r_text:
             dm.corrections[w_text] = r_text
             dm.save_corrections()
+            messagebox.showinfo("成功", "错字纠正已保存！")
             p.destroy()
+
+    def on_closing():
+        if w_ent.get().strip() or r_ent.get().strip():
+            ans = messagebox.askyesnocancel("提示", "有更改尚未保存，是否保存？", parent=p)
+            if ans is True:
+                confirm()
+            elif ans is False:
+                p.destroy()
+        else:
+            p.destroy()
+
+    p.protocol("WM_DELETE_WINDOW", on_closing)
 
     tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0, columnspan=2, pady=20)
 
@@ -43,10 +56,10 @@ def show_weapon_editor_popup(root, dm):
     """显示武器数据的查看和编辑弹窗"""
     editor_win = tk.Toplevel(root)
     editor_win.title("武器数据编辑器")
-    editor_win.minsize(1200, 500)
+    editor_win.minsize(800, 400)
     editor_win.attributes("-topmost", True)
 
-    w, h = 900, 650
+    w, h = 1180, 700
     editor_win.update_idletasks()
     sw = editor_win.winfo_screenwidth()
     sh = editor_win.winfo_screenheight()
@@ -81,6 +94,11 @@ def show_weapon_editor_popup(root, dm):
     scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas_frame = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
 
+    is_modified = [False]
+
+    def mark_modified(*args):
+        is_modified[0] = True
+
     def configure_canvas(event):
         if scrollable_frame.winfo_reqwidth() < event.width:
             canvas.itemconfigure(canvas_frame, width=event.width)
@@ -107,8 +125,8 @@ def show_weapon_editor_popup(root, dm):
             if row[1].winfo_ismapped():
                 row[0].set(state)
 
-    headers = ["全选", "武器名称", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "管理操作"]
-    header_widths = [5, 20, 10, 18, 18, 18, 10]
+    headers = ["全选", "武器名称", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "状态", "操作"]
+    header_widths = [5, 18, 8, 16, 16, 16, 8, 8]
 
     for i, h in enumerate(headers):
         if i == 0:
@@ -127,6 +145,7 @@ def show_weapon_editor_popup(root, dm):
 
         for row_list in table_rows:
             try:
+                # 重新映射索引
                 w_name = row_list[2].get().strip().lower()
                 w_star = row_list[3].get().strip()
                 w_a1 = row_list[4].get().strip().lower()
@@ -136,12 +155,12 @@ def show_weapon_editor_popup(root, dm):
                 match_star = (star_filter == "全部") or (star_filter in w_star)
                 match_query = (not query) or (query in w_name) or (query in w_a1) or (query in w_a2) or (query in w_a3)
 
-                if match_star and match_query:
-                    for widget in row_list[1:]:
-                        widget.grid()
-                else:
-                    for widget in row_list[1:]:
-                        widget.grid_remove()
+                for widget in row_list:
+                    if isinstance(widget, tk.Widget):
+                        if match_star and match_query:
+                            widget.grid()
+                        else:
+                            widget.grid_remove()
             except Exception:
                 pass
 
@@ -159,35 +178,64 @@ def show_weapon_editor_popup(root, dm):
 
         row_widgets = []
 
+        # 全选框
         chk_var = tk.BooleanVar(scrollable_frame)
         chk = tk.Checkbutton(scrollable_frame, variable=chk_var)
         chk.grid(row=row_idx, column=0, padx=5, pady=2)
-        row_widgets.append(chk_var)
-        row_widgets.append(chk)
+        row_widgets.extend([chk_var, chk])
 
         default_vals = data if data else {"武器": "", "星级": "6星", "毕业词条1": "", "毕业词条2": "", "毕业词条3": ""}
         fields = ["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"]
         widths = [18, 8, 16, 16, 16]
 
+        # 文本框
         for col, field in enumerate(fields):
             e = tk.Entry(scrollable_frame, width=widths[col], font=("微软雅黑", 10))
             e.insert(0, default_vals.get(field, ""))
+            e.bind("<KeyRelease>", mark_modified)
             e.grid(row=row_idx, column=col + 1, padx=5, pady=2, sticky="ew")
             row_widgets.append(e)
 
-        btn_del = tk.Button(scrollable_frame, text="删除", fg="white", bg="#d32f2f", command=lambda r=row_widgets: remove_row(r))
-        btn_del.grid(row=row_idx, column=6, padx=10, pady=2)
+        # 屏蔽按钮
+        shield_var = tk.StringVar(value=default_vals.get("屏蔽", ""))
+        btn_shield = tk.Button(scrollable_frame, width=6, font=("微软雅黑", 9))
+
+        def toggle_shield(btn, var):
+            mark_modified()
+            if var.get() == "1":
+                var.set("")
+                btn.config(bg="#9e9e9e", text="屏蔽", fg="white")
+            else:
+                var.set("1")
+                btn.config(bg="#2E7D32", text="已屏蔽", fg="white")
+
+        if shield_var.get() == "1":
+            btn_shield.config(bg="#2E7D32", text="已屏蔽", fg="white")
+        else:
+            btn_shield.config(bg="#9e9e9e", text="屏蔽", fg="white")
+
+        btn_shield.config(command=lambda b=btn_shield, v=shield_var: toggle_shield(b, v))
+        btn_shield.grid(row=row_idx, column=6, padx=5, pady=2)
+        row_widgets.extend([shield_var, btn_shield])
+
+        # 删除按钮
+        btn_del = tk.Button(scrollable_frame, text="删除", fg="white", bg="#d32f2f", width=6, font=("微软雅黑", 9),
+                            command=lambda r=row_widgets: remove_row(r))
+        btn_del.grid(row=row_idx, column=7, padx=5, pady=2)
         row_widgets.append(btn_del)
 
         if is_new:
+            mark_modified()
             table_rows.insert(0, row_widgets)
         else:
             table_rows.append(row_widgets)
 
     def remove_row(row_widgets):
         """删除指定行"""
-        for w in row_widgets[1:]:
-            w.destroy()
+        mark_modified()
+        for w in row_widgets:
+            if isinstance(w, tk.Widget):
+                w.destroy()
         if row_widgets in table_rows:
             table_rows.remove(row_widgets)
 
@@ -198,15 +246,35 @@ def show_weapon_editor_popup(root, dm):
             messagebox.showwarning("提示", "请先勾选需要删除的数据！", parent=editor_win)
             return
 
-        if messagebox.askyesno("批量删除", f"确定要删除选中的 {len(rows_to_delete)} 项吗？\n注意：需要点击保存才会写入文件。", parent=editor_win):
+        if messagebox.askyesno("批量删除",
+                               f"确定要删除选中的 {len(rows_to_delete)} 项吗？\n注意：需要点击保存才会写入文件。",
+                               parent=editor_win):
             for row in rows_to_delete:
                 remove_row(row)
             select_all_var.set(False)
 
     dm.weapon_list.sort(key=lambda x: str(x.get('星级', '6星')), reverse=True)
 
-    for weapon in dm.weapon_list:
-        add_row_ui(weapon, is_new=False)
+    def on_closing():
+        if is_modified[0]:
+            ans = messagebox.askyesnocancel("提示", "有更改尚未保存，是否保存并退出？", parent=editor_win)
+            if ans is True:
+                save_all()
+            elif ans is False:
+                editor_win.destroy()
+        else:
+            editor_win.destroy()
+
+    editor_win.protocol("WM_DELETE_WINDOW", on_closing)
+
+    def load_chunk(start_idx=0, chunk_size=20):
+        end_idx = min(start_idx + chunk_size, len(dm.weapon_list))
+        for i in range(start_idx, end_idx):
+            add_row_ui(dm.weapon_list[i], is_new=False)
+        if end_idx < len(dm.weapon_list):
+            editor_win.after(10, load_chunk, end_idx, chunk_size)
+
+    load_chunk()
 
     footer = tk.Frame(editor_win)
     footer.pack(fill="x", pady=15)
@@ -219,23 +287,27 @@ def show_weapon_editor_popup(root, dm):
                 if not row[2].winfo_exists():
                     continue
 
-                vals = [row[i].get().strip() for i in range(2, 7)]
-                if not vals[0]:
+                weapon_name = row[2].get().strip()
+                if not weapon_name:
                     continue
 
+                star_val = row[3].get().strip()
+                shield_val = row[7].get()
+
                 new_data.append({
-                    "武器": vals[0],
-                    "星级": vals[1] if "星" in vals[1] else f"{vals[1]}星",
-                    "毕业词条1": vals[2],
-                    "毕业词条2": vals[3],
-                    "毕业词条3": vals[4]
+                    "武器": weapon_name,
+                    "星级": star_val if "星" in star_val else f"{star_val}星",
+                    "毕业词条1": row[4].get().strip(),
+                    "毕业词条2": row[5].get().strip(),
+                    "毕业词条3": row[6].get().strip(),
+                    "屏蔽": shield_val
                 })
             except Exception:
                 continue
 
         try:
             with open(dm.csv_file, 'w', encoding='utf-8-sig', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3"])
+                writer = csv.DictWriter(f, fieldnames=["武器", "星级", "毕业词条1", "毕业词条2", "毕业词条3", "屏蔽"])
                 writer.writeheader()
                 writer.writerows(new_data)
             dm.weapon_list = new_data

@@ -44,6 +44,7 @@ class DeviceController:
         self.wgc_title = ""
         self.wgc_thread = None
         self.wgc_error = ""
+        self.wgc_should_stop = False
 
     def get_window_env(self):
         """获取目标游戏窗口句柄及坐标信息"""
@@ -137,6 +138,9 @@ class DeviceController:
 
             @capture.event
             def on_frame_arrived(frame, capture_control):
+                if self.wgc_should_stop:
+                    capture_control.stop()
+                    return
                 with self.wgc_lock:
                     self.wgc_frame = frame.frame_buffer.copy()
 
@@ -153,10 +157,20 @@ class DeviceController:
             else:
                 self.wgc_error = f"引擎启动失败: {e}"
 
+    def stop_capture(self):
+        """通知 WGC 引擎安全停止，防止挂起主线程"""
+        self.wgc_should_stop = True
+
     def capture_window_bg(self, env):
         """执行截图"""
         hwnd = env["hwnd"]
         res_w, res_h = env["res_w"], env["res_h"]
+
+        #防止最小化时卡死
+        if win32gui.IsIconic(hwnd):
+            return None
+
+        self.wgc_should_stop = False
 
         if not HAS_WGC:
             messagebox.showerror("依赖缺失", f"缺失 windows-capture 库。\n{WGC_IMPORT_ERROR}")

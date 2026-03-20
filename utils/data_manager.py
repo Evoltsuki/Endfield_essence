@@ -66,7 +66,10 @@ class DataManager:
                 r = csv.DictReader(f)
                 if r.fieldnames and "武器" in r.fieldnames:
                     for row in r:
-                        ws.append({k.strip(): v.strip() for k, v in row.items() if k})
+                        item = {k.strip(): v.strip() for k, v in row.items() if k}
+                        if "屏蔽" not in item:
+                            item["屏蔽"] = ""
+                        ws.append(item)
                 else:
                     messagebox.showerror("文件格式错误", "CSV格式不正确")
         except Exception as e:

@@ -17,6 +17,7 @@ class AutoScanner:
     def stop(self):
         """主动中断扫描"""
         self.running = False
+        self.controller.stop_capture()
 
     def start(self):
         """启动扫描控制线程"""
@@ -30,6 +31,7 @@ class AutoScanner:
                 self.log_cb("[系统] 扫描已终止", "blue")
 
             self.running = False
+            self.controller.stop_capture()
             self.finish_cb()
 
     def _flush_logs(self, logs):
@@ -151,7 +153,7 @@ class AutoScanner:
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
 
                 # 执行物理点击，弹出词条详情面板
-                click_delay = 0.25
+                click_delay = 0.30
                 self.controller.click_at(abs_cx, abs_cy, delay=click_delay)
 
                 scr = self.controller.capture_window_bg(env)

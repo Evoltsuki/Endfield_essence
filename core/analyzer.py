@@ -216,9 +216,14 @@ class VisionAnalyzer:
         cleaned_skills = [s.replace("提升", "") for s in skills]
 
         current_list_id = id(weapon_list)
+
+        #跳过已屏蔽的武器
         if current_list_id != self._cached_weapon_list_id:
             self._cleaned_weapons_cache = []
             for weapon in weapon_list:
+                if weapon.get('屏蔽', '') == '1':
+                    continue
+
                 ts = [self.clean_csv_text(weapon.get(f'毕业词条{i}', '')).replace("提升", "")
                       for i in range(1, 4) if weapon.get(f'毕业词条{i}', '')]
                 self._cleaned_weapons_cache.append((weapon.get('武器', '未知'), str(weapon.get('星级', '6星')), ts))
