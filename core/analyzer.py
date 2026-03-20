@@ -54,8 +54,11 @@ class VisionAnalyzer:
             res = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
 
-            return max_val > 0.75
-        except Exception:
+            return max_val > 0.80
+
+        except Exception as e:
+            if hasattr(self, 'log_cb'):
+                self.log_cb(f"[错误] 界面检测异常: {e}", "red")
             return False
 
     def get_inventory_count(self, window_img, roi):
@@ -316,7 +319,7 @@ class VisionAnalyzer:
 
             res = cv2.matchTemplate(scope_gray, template, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(res)
-            return max_val > 0.755
+            return max_val > 0.85
         except Exception:
             return False
 

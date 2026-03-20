@@ -37,38 +37,6 @@ class AutoScanner:
         for msg, tag in logs:
             self.log_cb(msg, tag)
 
-    def _get_row_signature(self, boxes):
-        """计算行签名，用于检测滑动是否有效"""
-        if not boxes:
-            return None
-        centers = [(int((bx1 + bx2) / 2), int((by1 + by2) / 2)) for bx1, by1, bx2, by2 in boxes]
-        return tuple(sorted(centers))
-
-    def _signatures_similar(self, sig1, sig2, threshold=20):
-        """比较两个签名是否相似
-
-        threshold: 基础像素阈值，会按当前 ui_scale 线性缩放，以保证不同缩放下行为一致。
-        """
-        if sig1 is None or sig2 is None:
-            return False
-        if len(sig1) != len(sig2):
-            return False
-
-        # 按 ui_scale 线性缩放阈值，避免在高/低缩放下误判
-        ui_scale = getattr(self, "ui_scale", 1.0)
-        try:
-            ui_scale = float(ui_scale)
-        except (TypeError, ValueError):
-            ui_scale = 1.0
-        if ui_scale <= 0:
-            ui_scale = 1.0
-        eff_threshold = threshold * ui_scale
-
-        for (x1, y1), (x2, y2) in zip(sig1, sig2):
-            if abs(x1 - x2) > eff_threshold or abs(y1 - y2) > eff_threshold:
-                return False
-        return True
-
     def _run_loop(self):
         """核心扫描逻辑主循环"""
         layout = self.controller.get_scaled_layout()
@@ -77,13 +45,10 @@ class AutoScanner:
             return
 
         env = layout["env"]
-        # 记录当前 ui_scale，供签名相似度等逻辑按缩放调整阈值
-        self.ui_scale = env.get("ui_scale", 1.0)
-        self.log_cb(f"[适配] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
+        self.log_cb(f"[系统] 分辨率 {env['res_w']}x{env['res_h']} (缩放系数: {env['ui_scale']:.2f})", "blue")
 
         total_rows = 0
         final_sweep_mode = False
-        last_row_signature = None
 
         cfg_skip_marked = self.dm.data.get("skip_marked", False)
         cfg_ignore_5star = self.dm.data.get("ignore_5star", True)
@@ -265,14 +230,9 @@ class AutoScanner:
                 break
 
             if physical_items_count == 9:
-                self.log_cb("[翻页] 正在向下滑动...", "black")
-                current_signature = self._get_row_signature([b for b, _ in valid_boxes])
+                self.log_cb("[操作] 正在向下滑动...", "black")
                 dist = layout["swipe_dist_first"] if total_rows == 0 else layout["swipe_dist_next"]
                 self.controller.swipe_up(layout["swipe_start"][0], layout["swipe_start"][1], dist)
-                if last_row_signature is not None and self._signatures_similar(last_row_signature, current_signature):
-                    self.log_cb("[系统] 滑动未改变位置，切换到全局尾扫模式...", "blue")
-                    final_sweep_mode = True
-                last_row_signature = current_signature
                 total_rows += 1
             else:
                 self.log_cb("[系统] 基质扫描结束！", "blue")
