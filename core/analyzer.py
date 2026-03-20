@@ -146,44 +146,6 @@ class VisionAnalyzer:
                 self._warned_thumb_err = True
             return False
 
-    def parse_ocr_lines(self, res):
-        """解析 OCR 识别结果，提取技能名称与等级"""
-        if not res:
-            return "", [], []
-
-        skills, levels = [], []
-        for line in res:
-            txt = self.cc.convert(str(line[1]))
-
-            # 应用自定义错字纠正字典
-            if self.dm.corrections:
-                for w in sorted(self.dm.corrections.keys(), key=len, reverse=True):
-                    txt = txt.replace(w, self.dm.corrections[w])
-
-            txt = txt.replace('|', '').replace('I', '1').replace('l', '1')
-            txt = txt.replace('个', '1').replace('十', '+')
-
-            # 提取中文字符作为技能名称
-            skill_name = re.sub(r'[^\u4e00-\u9fff]', '', txt)
-            if skill_name:
-                skills.append(skill_name)
-
-            # 提取数字作为技能等级
-            nums = re.findall(r'[+＋]?(\d)', txt)
-            for n in nums:
-                if 1 <= int(n) <= 6:
-                    levels.append(int(n))
-
-        # 拼接用于日志显示的字符串
-        display_parts = []
-        for i in range(max(len(skills), len(levels))):
-            s = skills[i] if i < len(skills) else ""
-            l = str(levels[i]) if i < len(levels) else ""
-            if s or l:
-                display_parts.append(f"{s}{l}")
-
-        return " ".join(display_parts), skills, levels
-
     def recognize_and_parse(self, roi_img):
         """预处理图像并执行 OCR 识别"""
         if roi_img is None or roi_img.size == 0:
@@ -210,6 +172,40 @@ class VisionAnalyzer:
         # 执行文本识别
         res, _ = self.ocr(processed_img, use_cls=False)
         return self.parse_ocr_lines(res)
+
+    def parse_ocr_lines(self, res):
+        """解析 OCR 识别结果，提取技能名称与等级"""
+        if not res:
+            return "", [], []
+
+        raw_skills, raw_levels = [], []
+        for line in res:
+            txt = self.cc.convert(str(line[1]))
+
+            if self.dm.corrections:
+                for w in sorted(self.dm.corrections.keys(), key=len, reverse=True):
+                    txt = txt.replace(w, self.dm.corrections[w])
+
+            # 提取名称并过滤单字干扰
+            name = re.sub(r'[^\u4e00-\u9fff]', '', txt)
+            if len(name) >= 2:
+                raw_skills.append(name)
+
+            # 独立提取等级数字
+            nums = re.findall(r'[+＋]?([1-6])', txt)
+            if nums:
+                raw_levels.append(int(nums[0]))
+
+        skills = raw_skills
+        levels = raw_levels[:len(skills)]
+
+        while len(levels) < len(skills):
+            levels.append(0)
+
+        # 拼接显示字符串
+        display_parts = [f"{s}{l if l > 0 else ''}" for s, l in zip(skills, levels)]
+
+        return " ".join(display_parts), skills, levels
 
     def clean_csv_text(self, raw):
         """格式化 CSV 武器数据"""

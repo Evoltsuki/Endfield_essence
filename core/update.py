@@ -28,6 +28,7 @@ headers = {
 
 
 class UpdateWeapon:
+    _has_updated_this_session = False
     def __init__(self, dm, callbacks):
         self.dm = dm
 
@@ -54,6 +55,7 @@ class UpdateWeapon:
         tbody = table.find('tbody')
         rows = tbody.find_all('tr')
         raw_new_data = []  # 临时存储所有解析出的武器信息
+        UpdateWeapon._has_updated_this_session = True
 
         for row in rows:
             tds = row.find_all('td')
@@ -156,6 +158,10 @@ class UpdateWeapon:
             self.log_cb("[系统] 已完成武器列表更新", "blue")
 
     def __run__(self):
+        # 检查本次会话是否已更新
+        if UpdateWeapon._has_updated_this_session:
+            return
+
         self.log_cb("[系统] 正在获取武器列表...", "blue")
         try:
             response = requests.get(weapon_url, cookies=cookies, headers=headers, timeout=10)
