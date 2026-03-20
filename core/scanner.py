@@ -195,7 +195,7 @@ class AutoScanner:
                             quick_log("⭐ 识别到潜力基质！", "gold")
 
                         if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
-                            self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.15)
+                            self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.2)
                             quick_log("-> 已执行锁定指令", "blue")
                         else:
                             quick_log("-> 该基质已锁定，跳过", "gray")
@@ -210,7 +210,7 @@ class AutoScanner:
                         quick_log("判定为无用基质，准备废弃", "black")
 
                         if not self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"]):
-                            self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.15)
+                            self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.2)
                             quick_log("-> 已执行废弃指令", "gray")
                         else:
                             quick_log("-> 该基质已废弃，跳过", "gray")

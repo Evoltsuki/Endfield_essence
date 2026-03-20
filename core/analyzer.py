@@ -8,6 +8,17 @@ from opencc import OpenCC
 from tkinter import messagebox
 from utils.sys_helper import resource_path
 
+def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
+    """支持中文路径"""
+    try:
+        img_data = np.fromfile(file_path, dtype=np.uint8)
+        if img_data.size == 0:
+            return None
+        return cv2.imdecode(img_data, flags)
+    except Exception as e:
+        print(f"读取图片异常: {e}")
+        return None
+
 class VisionAnalyzer:
     def __init__(self, data_manager):
         self.dm = data_manager
@@ -31,7 +42,7 @@ class VisionAnalyzer:
         """检查当前是否停留在基质背包页面"""
         try:
             template_path = resource_path(os.path.join("img", "EssenceSlot.png"))
-            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            template = cv_imread(template_path, cv2.IMREAD_GRAYSCALE)
             if template is None:
                 if hasattr(self, 'log_cb'):
                     self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
@@ -107,7 +118,7 @@ class VisionAnalyzer:
                 best_val = 0.0
                 for f in files:
                     tpl_path = os.path.join(img_dir, f)
-                    tpl = cv2.imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+                    tpl = cv_imread(tpl_path, cv2.IMREAD_GRAYSCALE)
                     if tpl is None:
                         continue
 
@@ -305,7 +316,7 @@ class VisionAnalyzer:
         """基础的局部图像模板匹配方法"""
         try:
             template_path = resource_path(os.path.join("img", template_name))
-            template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
+            template = cv_imread(template_path, cv2.IMREAD_GRAYSCALE)
             if template is None:
                 return False
 
@@ -332,7 +343,7 @@ class VisionAnalyzer:
         """获取列表内基质的位置"""
         try:
             template_path = resource_path(os.path.join("img", "EssenceGeneral.png"))
-            template_bgr = cv2.imread(template_path, cv2.IMREAD_COLOR)
+            template_bgr = cv_imread(template_path, cv2.IMREAD_COLOR)
             if template_bgr is None:
                 return []
 
