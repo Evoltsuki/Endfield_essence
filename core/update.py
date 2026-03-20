@@ -41,8 +41,7 @@ class UpdateWeapon:
         """从 response 解析武器表格，与现有 CSV 文件增量合并"""
         # 确定 CSV 路径
         if csv_filename is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            csv_filename = os.path.join(base_dir, 'data', 'weapon_data.csv')
+            csv_filename = self.dm.csv_file
 
         # 解析新数据
         html = response.text if hasattr(response, 'text') else response
