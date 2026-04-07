@@ -107,7 +107,12 @@ class AutoScanner:
                 physical_items_count += 1
                 all_physical_boxes.append(b)  # 记录有效参照物
 
-                is_gold_item = self.analyzer.is_gold(box_img)
+                # 扩大判定框以检测基质稀有度
+                extra_h = int(12 * env["ui_scale"])
+                gold_by2 = min(win_img.shape[0], by2 + extra_h)
+                gold_box_img = win_img[by1:gold_by2, bx1:bx2]
+                is_gold_item = self.analyzer.is_gold(gold_box_img)
+
                 if is_gold_item:
                     gold_items_count += 1
 
@@ -147,7 +152,8 @@ class AutoScanner:
                     self.log_cb("[系统] 基质扫描结束！", "blue")
                     break
             elif physical_items_count == 9 and len(valid_boxes) == 0:
-                self.log_cb(f"[系统] 第 {total_rows + 1} 行已全部标记，跳过", "green")
+                if cfg_debug_gold or physical_items_count == gold_items_count:
+                    self.log_cb(f"[系统] 第 {total_rows + 1} 行已全部标记，跳过", "green")
 
             for item in valid_boxes:
                 b, is_gold_item, physical_col = item
@@ -168,7 +174,7 @@ class AutoScanner:
                 abs_cx, abs_cy = cx + env["abs_x"], cy + env["abs_y"]
 
                 # 执行物理点击，弹出词条详情面板
-                click_delay = 0.30
+                click_delay = 0.20
                 self.controller.click_at(abs_cx, abs_cy, delay=click_delay)
 
                 scr = self.controller.capture_window_bg(env)

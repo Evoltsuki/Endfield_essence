@@ -182,6 +182,7 @@ class VisionAnalyzer:
         for line in res:
             txt = self.cc.convert(str(line[1]))
 
+            # 错别字纠正字典替换
             if self.dm.corrections:
                 for w in sorted(self.dm.corrections.keys(), key=len, reverse=True):
                     txt = txt.replace(w, self.dm.corrections[w])
@@ -191,10 +192,13 @@ class VisionAnalyzer:
             if len(name) >= 2:
                 raw_skills.append(name)
 
-            # 独立提取等级数字
-            nums = re.findall(r'[+＋]?([1-6])', txt)
-            if nums:
-                raw_levels.append(int(nums[0]))
+            strict_nums = re.findall(r'[+＋]\s*([1-6])', txt)
+            if strict_nums:
+                raw_levels.append(int(strict_nums[-1]))
+            else:
+                nums = re.findall(r'([1-6])', txt)
+                if nums:
+                    raw_levels.append(int(nums[-1]))
 
         skills = raw_skills
         levels = raw_levels[:len(skills)]
@@ -271,7 +275,8 @@ class VisionAnalyzer:
                     m_idx.add(b_idx)
 
             if (h_hits == len(ts)) or (h_hits >= len(ts) - 1 and (h_hits + p_hits) >= len(ts)):
-                matched_weapons.append((w_name, w_star))
+                if is_gold_item:
+                    matched_weapons.append((w_name, w_star))
 
         if matched_weapons:
             return True, matched_weapons, "graduation"
@@ -300,11 +305,11 @@ class VisionAnalyzer:
         """判定基质稀有度"""
         try:
             h, w = bgr.shape[:2]
-            strip = bgr[int(h * 0.75):, int(w * 0.15):int(w * 0.85)]
+            strip = bgr[int(h * 0.90):, int(w * 0.15):int(w * 0.85)]
             hsv = cv2.cvtColor(strip, cv2.COLOR_BGR2HSV)
             # 锁定金色基质的特定 HSV 色值段
             mask = cv2.inRange(hsv, np.array([15, 100, 100]), np.array([35, 255, 255]))
-            return (np.sum(mask > 0) / mask.size) > 0.08
+            return (np.sum(mask > 0) / mask.size) > 0.1
         except Exception:
             return False
 
