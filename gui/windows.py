@@ -253,6 +253,27 @@ def show_weapon_editor_popup(root, dm):
                 remove_row(row)
             select_all_var.set(False)
 
+    def batch_shield():
+        """执行批量屏蔽/取消屏蔽"""
+        selected_rows = [row for row in table_rows if row[0].get()]
+        if not selected_rows:
+            messagebox.showwarning("提示", "请先勾选需要屏蔽的数据！", parent=editor_win)
+            return
+
+        all_shielded = all(row[7].get() == "1" for row in selected_rows)
+
+        mark_modified()
+        for row in selected_rows:
+            shield_var = row[7]
+            btn_shield = row[8]
+
+            if all_shielded:
+                shield_var.set("")
+                btn_shield.config(bg="#9e9e9e", text="屏蔽", fg="white")
+            else:
+                shield_var.set("1")
+                btn_shield.config(bg="#2E7D32", text="已屏蔽", fg="white")
+
     dm.weapon_list.sort(key=lambda x: str(x.get('星级', '6星')), reverse=True)
 
     def on_closing():
@@ -278,6 +299,10 @@ def show_weapon_editor_popup(root, dm):
 
     footer = tk.Frame(editor_win)
     footer.pack(fill="x", pady=15)
+
+    def toggle_potential():
+        dm.data["keep_potential"] = keep_potential_var.get()
+        dm.save_config()
 
     def save_all():
         """执行全部数据持久化保存"""
@@ -321,4 +346,7 @@ def show_weapon_editor_popup(root, dm):
 
     tk.Button(left_footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True), bg="#f0f0f0", width=12).pack(side="left", padx=(0, 10))
     tk.Button(left_footer, text="🗑️ 批量删除", command=batch_delete, bg="#d32f2f", fg="white", width=12).pack(side="left")
+    tk.Button(left_footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white", width=12).pack(side="left", padx=(10, 0))
+    keep_potential_var = tk.BooleanVar(value=dm.data.get("keep_potential", True))
+    tk.Checkbutton(left_footer, text="保留潜力基质", variable=keep_potential_var, command=toggle_potential,font=("微软雅黑", 9)).pack(side="left", padx=(15, 0))
     tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"), width=20).pack(side="right", padx=30)

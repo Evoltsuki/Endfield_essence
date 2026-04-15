@@ -282,22 +282,23 @@ class VisionAnalyzer:
             return True, matched_weapons, "graduation"
 
         # 潜力基质判定
-        if is_gold_item:
-            has_two_char_skill = any(len(s) == 2 for s in skills)
-            if sum(levels) >= 6 and has_two_char_skill:
-                return True, [("潜力基质", "5星")], "potential"
-
-            for s, l in zip(skills, levels):
-                if len(s) == 2 and l == 3:
+        if self.dm.data.get("keep_potential", True):
+            if is_gold_item:
+                has_two_char_skill = any(len(s) == 2 for s in skills)
+                if sum(levels) >= 6 and has_two_char_skill:
                     return True, [("潜力基质", "5星")], "potential"
-        else:
-            total_levels = sum(levels)
-            for s, l in zip(skills, levels):
-                if len(s) == 2:
-                    if l == 3:
-                        return True, [("潜力基质", "4星")], "potential"
-                    elif l == 2 and total_levels >= 6:
-                        return True, [("潜力基质", "4星")], "potential"
+
+                for s, l in zip(skills, levels):
+                    if len(s) == 2 and l == 3:
+                        return True, [("潜力基质", "5星")], "potential"
+            else:
+                total_levels = sum(levels)
+                for s, l in zip(skills, levels):
+                    if len(s) == 2:
+                        if l == 3:
+                            return True, [("潜力基质", "4星")], "potential"
+                        elif l == 2 and total_levels >= 6:
+                            return True, [("潜力基质", "4星")], "potential"
 
         return False, [], ""
 
