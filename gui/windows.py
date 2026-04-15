@@ -48,7 +48,6 @@ def show_add_correction_popup(root, dm):
             p.destroy()
 
     p.protocol("WM_DELETE_WINDOW", on_closing)
-
     tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0, columnspan=2, pady=20)
 
 
@@ -298,14 +297,66 @@ def show_weapon_editor_popup(root, dm):
     load_chunk()
 
     footer = tk.Frame(editor_win)
-    footer.pack(fill="x", pady=15)
+    footer.pack(fill="x", pady=15, padx=20)
+    left_footer = tk.Frame(footer)
+    left_footer.pack(side="left")
 
-    def toggle_potential():
-        dm.data["keep_potential"] = keep_potential_var.get()
-        dm.save_config()
+    tk.Button(left_footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True), bg="#f0f0f0", width=12).pack(
+        side="left", padx=(0, 10))
+    tk.Button(left_footer, text="🗑️ 批量删除", command=batch_delete, bg="#d32f2f", fg="white", width=12).pack(
+        side="left", padx=(0, 10))
+    tk.Button(left_footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white", width=12).pack(
+        side="left")
+
+    sep = ttk.Separator(footer, orient='vertical')
+    sep.pack(side="left", fill="y", padx=20)
+
+    settings_frame = tk.Frame(footer)
+    settings_frame.pack(side="left")
+
+    keep_potential_var = tk.BooleanVar(value=dm.data.get("keep_potential", True))
+    enable_grad_limit_var = tk.BooleanVar(value=dm.data.get("enable_grad_limit", False))
+    grad_keep_limit_var = tk.StringVar(value=str(dm.data.get("grad_keep_limit", 1)))
+
+    keep_potential_var.trace_add("write", mark_modified)
+    enable_grad_limit_var.trace_add("write", mark_modified)
+    grad_keep_limit_var.trace_add("write", mark_modified)
+
+    tk.Checkbutton(settings_frame, text="保留潜力基质", variable=keep_potential_var, font=("微软雅黑", 9)).pack(side="left", padx=(0, 0))
+    tk.Checkbutton(settings_frame, text="开启毕业锁定上限", variable=enable_grad_limit_var, font=("微软雅黑", 9)).pack(side="left")
+    ent_lim = tk.Entry(settings_frame, textvariable=grad_keep_limit_var, width=4, font=("微软雅黑", 9),justify="center")
+    ent_lim.pack(side="left", padx=(2, 0))
+    tk.Label(settings_frame, text="个", font=("微软雅黑", 9)).pack(side="left")
+
+    def update_entry_state(*args):
+        if enable_grad_limit_var.get():
+            ent_lim.config(state="normal")
+        else:
+            ent_lim.config(state="disabled")
+
+    enable_grad_limit_var.trace_add("write", update_entry_state)
+    update_entry_state()
+
+    def clear_records():
+        if messagebox.askyesno("确认", "确定要清空所有的基质记录吗？\n清空后将重新开始记录最高等级。",
+                               parent=editor_win):
+            dm.best_records.clear()
+            dm.save_records()
+            messagebox.showinfo("成功", "记录已清空！", parent=editor_win)
+
+    tk.Button(settings_frame, text="🗑️ 清空基质记录", command=clear_records, bg="#ffebee", fg="#c62828",
+              font=("微软雅黑", 8)).pack(side="left", padx=(10, 0))
 
     def save_all():
-        """执行全部数据持久化保存"""
+        """数据持久化保存"""
+        dm.data["keep_potential"] = keep_potential_var.get()
+        dm.data["enable_grad_limit"] = enable_grad_limit_var.get()
+        try:
+            val = int(grad_keep_limit_var.get().strip())
+            dm.data["grad_keep_limit"] = max(1, val)
+        except ValueError:
+            pass
+        dm.save_config()
         new_data = []
         for row in table_rows:
             try:
@@ -341,12 +392,6 @@ def show_weapon_editor_popup(root, dm):
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=editor_win)
 
-    left_footer = tk.Frame(footer)
-    left_footer.pack(side="left", padx=30)
-
-    tk.Button(left_footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True), bg="#f0f0f0", width=12).pack(side="left", padx=(0, 10))
-    tk.Button(left_footer, text="🗑️ 批量删除", command=batch_delete, bg="#d32f2f", fg="white", width=12).pack(side="left")
-    tk.Button(left_footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white", width=12).pack(side="left", padx=(10, 0))
-    keep_potential_var = tk.BooleanVar(value=dm.data.get("keep_potential", True))
-    tk.Checkbutton(left_footer, text="保留潜力基质", variable=keep_potential_var, command=toggle_potential,font=("微软雅黑", 9)).pack(side="left", padx=(15, 0))
-    tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white", font=("微软雅黑", 10, "bold"), width=20).pack(side="right", padx=30)
+    right_footer = tk.Frame(footer)
+    right_footer.pack(side="right")
+    tk.Button(right_footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white",font=("微软雅黑", 10, "bold"), width=20).pack(side="right")

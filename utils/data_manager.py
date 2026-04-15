@@ -8,21 +8,26 @@ class DataManager:
         self.config_file = "data/config.json"
         self.csv_file = "data/weapon_data.csv"
         self.corrections_file = "data/Jiucuo.json"
+        self.records_file = "data/best_records.json"
 
         os.makedirs("data", exist_ok=True)
 
         self.data = self.load_config()
         self.weapon_list = self.load_weapon_csv()
         self.corrections = self.load_corrections()
+        self.best_records = self.load_records()
 
     def load_config(self):
         """加载或初始化应用配置信息"""
         default_config = {
-            "skip_marked": False,
-            "ignore_5star": True,
-            "debug_gold": False,
             "window_x": None,
-            "window_y": None
+            "window_y": None,
+            "skip_marked": False,
+            "ignore_5star": False,
+            "debug_gold": False,
+            "keep_potential": True,
+            "enable_grad_limit": False,
+            "grad_keep_limit": 1
         }
 
         if os.path.exists(self.config_file):
@@ -80,3 +85,21 @@ class DataManager:
         """保存当前错字纠正字典配置"""
         with open(self.corrections_file, 'w', encoding='utf-8') as f:
             json.dump(self.corrections, f, ensure_ascii=False, indent=4)
+
+    def load_records(self):
+        """读取最高分排行榜数据"""
+        if os.path.exists(self.records_file):
+            try:
+                with open(self.records_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def save_records(self):
+        """保存最高分排行榜数据"""
+        try:
+            with open(self.records_file, 'w', encoding='utf-8') as f:
+                json.dump(self.best_records, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"保存排行榜失败: {e}")

@@ -201,8 +201,6 @@ class AutoScanner:
                 if display_str:
                     quick_log(f"---------- 检查: {logic_row}-{logic_col} ----------", "black")
                     quick_log(f"识别结果: {display_str}", "green")
-
-                    # 根据词条内容匹配武器库，判断是否为毕业或潜力基质
                     is_keep, matched_weapons, match_type = self.analyzer.check_all_attributes(
                         self.dm.weapon_list, skills, levels, is_gold_item, cfg_ignore_5star
                     )
@@ -211,22 +209,96 @@ class AutoScanner:
                         if match_type == "graduation":
                             is_6star = any("6" in w_star for _, w_star in matched_weapons)
                             grad_color = "red" if is_6star else "gold"
-                            quick_log([("⭐ 识别到", "gold"), ("毕业基质！", grad_color)])
+
+                            # 毕业基质数量限制
+                            is_locked_now = self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"])
+                            current_score = sum(levels)
+                            enable_limit = self.dm.data.get("enable_grad_limit", False)
+                            keep_limit = self.dm.data.get("grad_keep_limit", 1)
+
+                            is_qualify = not enable_limit  # 未开启限制时默认直接保留
+                            records_updated = False
+                            is_tied_with_board = False
+
+                            for w_name, w_star in matched_weapons:
+                                if w_name not in self.dm.best_records:
+                                    self.dm.best_records[w_name] = []
+
+                                w_records = self.dm.best_records[w_name]
+
+                                if len(w_records) > keep_limit:
+                                    w_records[:] = w_records[:keep_limit]
+                                    records_updated = True
+
+                                if is_locked_now and current_score in w_records:
+                                    is_tied_with_board = True
+                                    continue
+
+                                if len(w_records) < keep_limit:
+                                    w_records.append(current_score)
+                                    w_records.sort(reverse=True)
+                                    is_qualify = True
+                                    records_updated = True
+                                elif current_score > w_records[-1]:
+                                    w_records[-1] = current_score
+                                    w_records.sort(reverse=True)
+                                    is_qualify = True
+                                    records_updated = True
+                                elif current_score >= w_records[-1]:
+                                    is_tied_with_board = True
+
+                            if records_updated:
+                                self.dm.save_records()
+
+                            if is_qualify:
+                                quick_log([("⭐ 识别到", "gold"), (f"毕业基质！(总等级:{current_score})", grad_color)])
+                                if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
+                                    self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.2)
+                                    quick_log("-> 已执行锁定指令", "blue")
+                                else:
+                                    quick_log("-> 该基质已锁定，跳过", "gray")
+
+                                self.lock_cb({
+                                    "weapons": matched_weapons,
+                                    "display_str": display_str,
+                                    "row": logic_row,
+                                    "col": logic_col
+                                })
+
+                            elif is_tied_with_board and self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
+                                quick_log(
+                                    [("⭐ 识别到", "gold"), (f"毕业基质！(总等级:{current_score} 最高记录)", grad_color)])
+                                quick_log("-> 该基质已锁定，跳过", "gray")
+
+                                self.lock_cb({
+                                    "weapons": matched_weapons,
+                                    "display_str": display_str,
+                                    "row": logic_row,
+                                    "col": logic_col
+                                })
+                            else:
+                                quick_log([("⭐ 识别到", "gold"), (f"毕业基质！(总等级:{current_score})", grad_color)])
+                                quick_log("-> 等级低于最高记录，准备废弃", "black")
+                                if not self.analyzer.is_already_discarded_bg(scr, discard_rel_pos, env["ui_scale"]):
+                                    self.controller.click_at(layout["discard_btn"][0], layout["discard_btn"][1], delay=0.2)
+                                    quick_log("-> 已执行废弃指令", "gray")
+                                else:
+                                    quick_log("-> 该基质已废弃，跳过", "gray")
                         else:
                             quick_log("⭐ 识别到潜力基质！", "gold")
 
-                        if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
-                            self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.2)
-                            quick_log("-> 已执行锁定指令", "blue")
-                        else:
-                            quick_log("-> 该基质已锁定，跳过", "gray")
+                            if not self.analyzer.is_already_locked_bg(scr, lock_rel_pos, env["ui_scale"]):
+                                self.controller.click_at(layout["lock_btn"][0], layout["lock_btn"][1], delay=0.2)
+                                quick_log("-> 已执行锁定指令", "blue")
+                            else:
+                                quick_log("-> 该基质已锁定，跳过", "gray")
 
-                        self.lock_cb({
-                            "weapons": matched_weapons,
-                            "display_str": display_str,
-                            "row": logic_row,
-                            "col": logic_col
-                        })
+                            self.lock_cb({
+                                "weapons": matched_weapons,
+                                "display_str": display_str,
+                                "row": logic_row,
+                                "col": logic_col
+                            })
                     else:
                         quick_log("判定为无用基质，准备废弃", "black")
 
