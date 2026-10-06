@@ -1,36 +1,59 @@
 import os
 import threading
+import queue
+import time
+import sys
 import tkinter as tk
-from tkinter import scrolledtext
 from PIL import Image, ImageTk
 from pynput import keyboard
-from utils.sys_helper import resource_path
-from gui.windows import show_add_correction_popup, show_weapon_editor_popup
 from core.scanner import AutoScanner
 from core.update import UpdateWeapon
+from gui.output import display_message
+from utils.version import APP_TITLE
 
 
 class MatrixAssistantApp:
-    def __init__(self, root, dm, controller, analyzer):
+    def __init__(self, root, dm, controller, analyzer, diagnostics=None):
         self.updateWeapon = None
         self.root = root
         self.dm = dm
         self.controller = controller
         self.analyzer = analyzer
         self.scanner = None
+        self.diagnostics = diagnostics
+        self.scan_end_status = "finished"
+        self.reported_log_error = ""
+        self.log_queue = queue.SimpleQueue()
+        self.preparing = False
+        self.cancel_prepare = False
+        self.scan_started = None
+        self.last_checked = 0
+        self.last_elapsed = 0
 
-        self.app_width = 530
-        self.app_height = 800
+        self.app_width = 580
+        self.app_height = 740
 
-        self.root.title("毕业基质自动识别工具beta v3.3 -by洁柔厨")
+        self.root.title(APP_TITLE)
         self.root.attributes("-topmost", True)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.setup_ui()
+        from tkinter import font as tkfont
+        sample = "识别结果: 敏捷提升3 终结技充能效率提升6 迸发3"
+        self.app_width = max(540, tkfont.Font(font=self.log_area.cget('font')).measure(sample) + 60)
+        self.app_width = min(self.app_width, self.root.winfo_screenwidth()-40)
         self.restore_window_position()
+        self.root.update_idletasks()
+        self._geometry_save_timer = None
+        self._last_window_geometry = None
+        self.root.bind('<Configure>', self._queue_window_geometry, add='+')
+        self.root.after(50, self._refresh_ui)
 
         self.kb = keyboard.Listener(on_press=self.on_press)
         self.kb.start()
+        if self.diagnostics:
+            self.gui_log(f"[日志] 自动保存到 {self.diagnostics.directory}", "blue")
+        self.gui_log("打开游戏的基质背包，选择扫描方式后点击开始。", "gray")
 
     def restore_window_position(self):
         """恢复主窗口上一次记录的屏幕坐标"""
@@ -52,14 +75,41 @@ class MatrixAssistantApp:
             if pos_y < 0 or pos_y > sh - 100:
                 pos_y = default_y
 
-        self.root.geometry(f"{self.app_width}x{self.app_height}+{pos_x}+{pos_y}")
+        width = max(240, self.dm.data.get('window_width', self.app_width))
+        height = max(160, self.dm.data.get('window_height', self.app_height))
+        self.root.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+
+    def _queue_window_geometry(self, event):
+        if event.widget is not self.root:
+            return
+        if self._geometry_save_timer:
+            self.root.after_cancel(self._geometry_save_timer)
+        self._geometry_save_timer = self.root.after(500, self._save_window_geometry)
+
+    def _save_window_geometry(self):
+        self._geometry_save_timer = None
+        # 原生最小化和自绘最大化期间不覆盖普通窗口的坐标和尺寸。
+        import win32gui
+        if self.chrome.restore_geometry or (hasattr(self.chrome, 'hwnd') and win32gui.IsIconic(self.chrome.hwnd)):
+            return
+        geometry = (self.root.winfo_x(), self.root.winfo_y(), self.root.winfo_width(), self.root.winfo_height())
+        if geometry[2] < 240 or geometry[3] < 160 or geometry == self._last_window_geometry:
+            return
+        self.dm.data.update(zip(('window_x', 'window_y', 'window_width', 'window_height'), geometry))
+        self.dm.save_config()
+        self._last_window_geometry = geometry
 
     def on_close(self):
         """处理窗口关闭事件并清理线程"""
         self.root.update_idletasks()
-        self.dm.data["window_x"] = self.root.winfo_x()
-        self.dm.data["window_y"] = self.root.winfo_y()
-        self.dm.save_config()
+        if self._geometry_save_timer:
+            self.root.after_cancel(self._geometry_save_timer)
+        self._save_window_geometry()
+        if self.scanner:
+            self.scanner.stop()
+        if self.diagnostics:
+            elapsed = time.perf_counter()-self.scan_started if self.scan_started else None
+            self.diagnostics.close(self.scanner.processed_items if self.scanner else None, elapsed)
 
         if self.kb:
             self.kb.stop()
@@ -68,126 +118,102 @@ class MatrixAssistantApp:
         os._exit(0)
 
     def setup_ui(self):
-        """初始化 UI 组件"""
-        self.root.resizable(True, True)
-        self.root.pack_propagate(False)
-        self.root.grid_propagate(False)
-        self.locked_history = []
-
-        icon_path = resource_path(os.path.join("img", "jizhi.ico"))
-        if os.path.exists(icon_path):
-            try:
-                img = Image.open(icon_path)
-                self.tk_icon = ImageTk.PhotoImage(img)
-                self.root.iconphoto(True, self.tk_icon)
-            except Exception:
-                pass
-
-        MUTED_RED = "#B71C1C"
-
-        top_info_frame = tk.Frame(self.root)
-        top_info_frame.pack(fill="x", padx=10, pady=(10, 0))
-
-        tk.Label(top_info_frame, text="群号: 1006580737", font=("微软雅黑", 9, "bold"), fg="#FF5722").pack(side="left")
-        tk.Label(top_info_frame, text="本工具完全免费", font=("微软雅黑", 9, "bold"), fg="#FF5722").pack(side="right")
-
-        header = tk.Frame(self.root)
-        header.pack(fill="x", padx=10, pady=(5, 10))
-        header.columnconfigure(0, weight=1, uniform="col")
-        header.columnconfigure(1, weight=1, uniform="col")
-        header.columnconfigure(2, weight=1, uniform="col")
-
-        filter_lf = tk.LabelFrame(header, text="  ⚙扫描过滤 ", font=("微软雅黑", 10, "bold"), fg="#424242", padx=5,
-                                  pady=5)
-        filter_lf.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
-
-        self.skip_marked_var = tk.BooleanVar(value=self.dm.data.get("skip_marked", False))
-        tk.Checkbutton(filter_lf, text="跳过已标记基质", variable=self.skip_marked_var,
-                       command=self.save_ui_config, font=("微软雅黑", 8)).pack(anchor="w", pady=1)
-
-        self.ignore_5star_var = tk.BooleanVar(value=self.dm.data.get("ignore_5star", True))
-        tk.Checkbutton(filter_lf, text="不锁定五星武器", variable=self.ignore_5star_var,
-                       command=self.save_ui_config, font=("微软雅黑", 8)).pack(anchor="w", pady=1)
-
-        self.debug_gold_var = tk.BooleanVar(value=self.dm.data.get("debug_gold", False))
-        tk.Checkbutton(filter_lf, text="识别紫色基质", variable=self.debug_gold_var,
-                       command=self.save_ui_config, font=("微软雅黑", 8)).pack(anchor="w", pady=1)
-
-        action_f = tk.Frame(header)
-        action_f.grid(row=0, column=1, sticky="nsew")
-
-        center_box = tk.Frame(action_f)
-        center_box.place(relx=0.5, rely=0.5, anchor="center")
-
-        self.run_btn = tk.Button(center_box, text="▶ 开始扫描", command=self.start_thread, bg="#2E7D32",
-                                 fg="white", font=("微软雅黑", 10, "bold"), width=14, height=2, relief="ridge",
-                                 borderwidth=2)
-        self.run_btn.pack(pady=(0, 5))
-        tk.Label(center_box, text="（按 'B' 停止）", font=("微软雅黑", 8), fg=MUTED_RED).pack()
-
-        data_lf = tk.LabelFrame(header, text="  🗃数据管理 ", font=("微软雅黑", 10, "bold"), fg="#424242", padx=5,
-                                pady=5)
-        data_lf.grid(row=0, column=2, sticky="nsew", padx=(2, 0))
-
-        data_inner = tk.Frame(data_lf)
-        data_inner.pack(expand=True, fill="both", pady=(2, 0))
-
-        tk.Button(data_inner, text="✍添加错字纠正", command=lambda: show_add_correction_popup(self.root, self.dm),
-                  font=("微软雅黑", 8), bg="#F5F5F5").pack(fill="x", pady=(2, 6), ipady=1)
-        tk.Button(data_inner, text="⚔修改武器数据", command=lambda: show_weapon_editor_popup(self.root, self.dm),
-                  font=("微软雅黑", 8), bg="#F5F5F5").pack(fill="x", pady=(0, 2), ipady=1)
-
-        content_frame = tk.Frame(self.root)
-        content_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-
-        self.paned_window = tk.PanedWindow(content_frame, orient=tk.VERTICAL, sashwidth=6, sashrelief=tk.RAISED,
-                                           bg="#E0E0E0")
-        self.paned_window.pack(fill="both", expand=True)
-
-        log_pane = tk.Frame(self.paned_window)
-        self.paned_window.add(log_pane, stretch="always", minsize=100)
-
-        tk.Label(log_pane, text="实时日志:", font=("微软雅黑", 11, "bold")).pack(anchor="w")
-        self.log_area = scrolledtext.ScrolledText(log_pane, height=7, font=("微软雅黑", 10), relief="solid",
-                                                  borderwidth=1)
-        self.log_area.pack(pady=(2, 5), fill="both", expand=True)
-
-        for t, c in [("black", "black"), ("green", "#2E7D32"), ("gold", "#FF9800"),
-                     ("red", "#B71C1C"), ("blue", "blue"), ("gray", "#757575")]:
-            self.log_area.tag_config(t, foreground=c)
-
-        lock_pane = tk.Frame(self.paned_window)
-        self.paned_window.add(lock_pane, stretch="always", minsize=150)
-
-        tk.Label(lock_pane, text="已锁定列表:", font=("微软雅黑", 11, "bold"), fg=MUTED_RED).pack(anchor="w")
-        self.lock_list_area = scrolledtext.ScrolledText(lock_pane, height=11, font=("微软雅黑", 10), bg="#F9F9F9",
-                                                        relief="solid", borderwidth=1)
-        self.lock_list_area.pack(pady=(2, 0), fill="both", expand=True)
-
-        for t, c in [("red_text", "#B71C1C"), ("gold_text", "#FF9800"), ("green_text", "#2E7D32"),
-                     ("black_text", "black")]:
-            self.lock_list_area.tag_config(t, foreground=c)
+        from gui.main_view import build_main_view
+        build_main_view(self)
 
     def gui_log(self, m, tag="black"):
-        """在 UI 中输出日志"""
-        self.root.after(0, self._gui_log_safe, m, tag)
+        """工作线程只入队，主线程批量渲染。"""
+        if self.diagnostics:
+            self.diagnostics.write(m, tag)
+        visible = display_message(m, tag)
+        if visible is not None:
+            self.log_queue.put(visible)
+
+    def _refresh_ui(self):
+        if self.diagnostics and self.diagnostics.error != self.reported_log_error:
+            self.reported_log_error = self.diagnostics.error
+            if self.reported_log_error:
+                self.log_queue.put((self.reported_log_error, "red"))
+        follow = self.log_area.yview()[1] >= .99
+        for _ in range(200):
+            try:
+                m, tag = self.log_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._gui_log_safe(m, tag)
+        lines = int(self.log_area.index("end-1c").split(".")[0])
+        if lines > 2001:
+            self.log_area.config(state="normal")
+            self.log_area.delete("1.0", f"{lines - 2000}.0")
+            self.log_area.config(state="disabled")
+        if follow:
+            self.log_area.see(tk.END)
+        if self.scanner:
+            self.last_checked = self.scanner.processed_items
+            if self.scan_started:
+                self.last_elapsed = time.perf_counter() - self.scan_started
+        state = "正在准备" if self.preparing else ("扫描中" if self.scanner and self.scanner.running else
+                ("已停止" if self.scan_end_status == "user_stopped" else "就绪"))
+        self.status_var.set(f"{state} · {self.last_checked} 件\n{self.last_elapsed:.1f} 秒")
+        self.root.after(50, self._refresh_ui)
+
+    def _set_settings_enabled(self, enabled):
+        for widget in self.settings_widgets:
+            widget.config(state="normal" if enabled else "disabled")
+
+    def stop_scan(self):
+        if self.scan_end_status == "user_stopped" and (self.preparing or self.scanner):
+            return
+        if self.preparing or self.scanner:
+            self.scan_end_status = "user_stopped"
+            self.gui_log("[停止请求] 用户点击停止或按下B键", "blue")
+        if self.preparing:
+            self.cancel_prepare = True
+            self.stop_btn.config(state="disabled")
+            self.gui_log("[系统] 已取消启动，等待武器更新结束", "blue")
+        if self.scanner:
+            self.stop_btn.config(state="disabled", text="正在停止…")
+            self.scanner.stop()
 
     def _gui_log_safe(self, m, tag):
         """解析日志内容，支持单行多色文本渲染"""
+        self.log_area.config(state="normal")
         if isinstance(m, list):
             for text, color_tag in m:
                 self.log_area.insert(tk.END, text, color_tag)
             self.log_area.insert(tk.END, "\n")
         else:
             self.log_area.insert(tk.END, str(m) + "\n", tag)
-        self.log_area.see(tk.END)
+        self.log_area.config(state="disabled")
 
     def add_to_lock_list(self, data):
         """更新已锁定列表记录"""
+        if self.diagnostics:
+            self.diagnostics.record("locked", data)
         self.root.after(0, self._add_to_lock_list_safe, data)
+
+    def add_scan_result(self, data):
+        if self.diagnostics:
+            self.diagnostics.record("ocr", dict(data, tokens=getattr(self.analyzer, "last_ocr_tokens", []),
+                                               ocr_path=getattr(self.analyzer, "last_ocr_path", "unknown")))
+        self.root.after(0, self._add_scan_result_safe, data)
+
+    def _add_scan_result_safe(self, data):
+        if data.get("issue"):
+            self.review_count += 1
+            self.review_var.set(f"需复核 {self.review_count} 件")
+        # 只保留当前预览图片，历史表格保留文字，避免扫描整个背包时积累图像。
+        frame = data.get("image")
+        if frame is not None:
+            preview = Image.fromarray(frame[:, :, ::-1])
+            preview.thumbnail((330, 105), Image.Resampling.LANCZOS)
+            self.current_preview = ImageTk.PhotoImage(preview)
+            self.preview_label.config(image=self.current_preview, text="")
 
     def _add_to_lock_list_safe(self, data):
         self.locked_history.append(data)
+        self.lock_count_var.set(f"{len(self.locked_history)} 件")
+        self.lock_list_area.config(state="normal")
 
         def sort_key(item):
             weapons = item.get("weapons", [])
@@ -202,32 +228,47 @@ class MatrixAssistantApp:
             return (-max_star, primary_name)
 
         self.locked_history.sort(key=sort_key)
-        self.lock_list_area.delete('1.0', tk.END)
-
-        for item in self.locked_history:
+        index = next(i for i, item in enumerate(self.locked_history) if item is data)
+        # 每件记录占一行，仅插入新增行，避免反复重绘全部历史。
+        insert_at = f"{index + 1}.0"
+        self.lock_list_area.mark_set("new_record", insert_at)
+        self.lock_list_area.mark_gravity("new_record", tk.RIGHT)
+        for item in (data,):
             matched_weapons = item.get("weapons", [])
             for w_idx, (w_name, w_star) in enumerate(matched_weapons):
                 name_color = "red_text" if "6" in w_star else "gold_text"
-                self.lock_list_area.insert(tk.END, w_name, name_color)
+                self.lock_list_area.insert("new_record", w_name, name_color)
                 if w_idx < len(matched_weapons) - 1:
-                    self.lock_list_area.insert(tk.END, "|", "black_text")
+                    self.lock_list_area.insert("new_record", "|", "black_text")
 
-            self.lock_list_area.insert(tk.END, f" {item.get('display_str', '')} ", "green_text")
-            self.lock_list_area.insert(tk.END, f"坐标{item.get('row', '?')}-{item.get('col', '?')}\n", "black_text")
+            self.lock_list_area.insert("new_record", f" {item.get('display_str', '')} ", "green_text")
+            self.lock_list_area.insert("new_record", f"坐标{item.get('row', '?')}-{item.get('col', '?')}\n", "black_text")
+        self.lock_list_area.config(state="disabled")
 
     def on_scan_finish(self):
         """处理扫描结束后的 UI 恢复"""
+        if self.diagnostics:
+            self.diagnostics.finish_scan(self.scan_end_status, self.scanner.processed_items,
+                                         round(time.perf_counter()-self.scan_started, 3))
         self.root.after(0, self._on_scan_finish_safe)
 
     def _on_scan_finish_safe(self):
+        if self.diagnostics:
+            self.diagnostics.finish_scan(self.scan_end_status)
+        if self.scanner:
+            self.last_checked = self.scanner.processed_items
+            if self.scan_started:
+                self.last_elapsed = time.perf_counter() - self.scan_started
+        self.preparing = False
+        self.stop_btn.config(state="disabled", text="停止 · B")
+        self._set_settings_enabled(True)
         self.run_btn.config(state="normal", text="▶ 开始扫描")
         self.scanner = None
 
     def on_press(self, k):
         """监听快捷键事件"""
-        if hasattr(k, 'char') and k.char == 'b':
-            if self.scanner and self.scanner.running:
-                self.scanner.stop()
+        if (getattr(k, 'char', '') or '').lower() == 'b':
+            self.root.after(0, self.stop_scan)
 
     def save_ui_config(self):
         """保存用户界面勾选配置"""
@@ -238,31 +279,76 @@ class MatrixAssistantApp:
 
     def start_thread(self):
         """初始化配置并拉起扫描执行线程"""
-        if self.scanner and self.scanner.running:
+        if self.scanner or self.run_btn["state"] == "disabled":
             return
-
+        self.run_btn.config(state="disabled", text="正在准备...")
+        self.preparing = True
+        self.cancel_prepare = False
+        self.stop_btn.config(state="normal", text="取消准备 · B")
+        self._set_settings_enabled(False)
+        self.last_checked = 0
+        self.last_elapsed = 0
+        self.scan_started = None
+        self.review_count = 0
+        self.review_var.set("需复核 0 件")
+        self.scan_end_status = "finished"
         self.save_ui_config()
+        if self.diagnostics:
+            keys = ("skip_marked", "ignore_5star", "debug_gold", "keep_potential", "enable_grad_limit",
+                    "grad_keep_limit", "potential_rules", "scan_mode", "verify_detail_stability")
+            config = {key: self.dm.data.get(key) for key in keys}
+            config.update(preview=False, skip_marked=self.skip_marked_var.get(),
+                          ignore_5star=self.ignore_5star_var.get(), debug_gold=self.debug_gold_var.get(),
+                          ocr_mode=self.dm.data.get("ocr_mode", "auto"), scan_mode=self.dm.data.get("scan_mode", "page"))
+            self.diagnostics.begin_scan(config)
+
         self.dm.corrections = self.dm.load_corrections()
-        self.log_area.delete('1.0', tk.END)
-        self.lock_list_area.delete('1.0', tk.END)
+        for area in (self.log_area, self.lock_list_area):
+            area.config(state="normal")
+            area.delete('1.0', tk.END)
+            area.config(state="disabled")
         self.locked_history.clear()
+        self.lock_count_var.set("0 件")
+        self.current_preview = None
+        self.preview_label.config(image="", text="当前词条预览 · 等待扫描")
 
         callbacks = {
             "log": self.gui_log,
             "lock": self.add_to_lock_list,
+            "result": self.add_scan_result,
             "finish": self.on_scan_finish
         }
         self.updateWeapon = UpdateWeapon(self.dm, callbacks)
 
         def run_update_weapon_and_continue():
-            self.updateWeapon.__run__()
+            try:
+                self.updateWeapon.__run__()
+            except Exception as exc:
+                if self.diagnostics:
+                    self.diagnostics.exception(*sys.exc_info())
+                self.scan_end_status = "preparation_failed"
+                self.gui_log(f"[错误] 武器数据更新失败: {exc}", "red")
+                self.root.after(0, self._on_scan_finish_safe)
+                return
             self.root.after(0, lambda: self.after_update_weapon(callbacks))
 
         threading.Thread(target=run_update_weapon_and_continue, daemon=True).start()
 
     def after_update_weapon(self,callbacks):
+        if self.cancel_prepare:
+            self._on_scan_finish_safe()
+            return
+        self.preparing = False
+        if not self.controller.activate_game():
+            self.scan_end_status = "activation_failed"
+            self.gui_log(f"[激活诊断] {getattr(self.controller, 'activation_error', '')}", "red")
+            self.gui_log("[系统] 无法自动激活游戏，请切回游戏后重试", "red")
+            self._on_scan_finish_safe()
+            return
         self.gui_log("[系统] 开始启动扫描，按 'B' 键停止", "blue")
         self.run_btn.config(state="disabled", text="正在扫描...")
+        self.stop_btn.config(text="停止 · B")
 
-        self.scanner = AutoScanner(self.dm, self.controller, self.analyzer, callbacks)
+        self.scanner = AutoScanner(self.dm, self.controller, self.analyzer, callbacks, preview=False)
+        self.scan_started = time.perf_counter()
         threading.Thread(target=self.scanner.start, daemon=True).start()

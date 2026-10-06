@@ -1,0 +1,62 @@
+# Local requirements, handover notes and agent workspace
+/docs/
+/.codex/
+
+# Runtime output, logs and screenshots (keep img/ and test fixtures)
+/Output/
+/output/
+/logs/
+/screenshots/
+*.log
+/logs.txt
+/logs-*.txt
+/logs_*.txt
+/示例图.png
+
+# Per-user settings and inventory records; keep shared weapon/correction data
+/data/config.json
+/data/best_records.json
+
+# Python virtual environments and generated caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Packaging output (build.py remains source)
+/build/
+/dist/
+/Endfield_essence_v*/
+/Endfield_essence_v*.zip
+*.egg-info/
+*.egg
+*.spec
+
+# Editor / operating system files
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*.bak
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local credentials; sanitized examples can be versioned
+.env
+.env.*
+!.env.example
+!.env.sample

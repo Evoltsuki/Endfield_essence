@@ -2,27 +2,20 @@ import csv
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
+from gui.theme import apply_theme
+from gui.dialogs import center_dialog
+from gui.records_view import show_records
 
 def show_add_correction_popup(root, dm):
     """显示新增错字纠正内容的弹窗"""
     p = tk.Toplevel(root)
+    p.withdraw()
     p.title("错字纠正")
     p.attributes("-topmost", True)
+    p.transient(root)
+    p.grab_set()
 
-    w, h = 300, 180
-    p.geometry(f"{w}x{h}")
-    p.update_idletasks()
-    root.update_idletasks()
-
-    root_x = root.winfo_rootx()
-    root_y = root.winfo_rooty()
-    root_w = root.winfo_width()
-    root_h = root.winfo_height()
-
-    x = root_x + (root_w - w) // 2
-    y = root_y + (root_h - h) // 2
-    p.geometry(f"{w}x{h}+{x}+{y}")
-
+    w, h = 380, 230
     w_ent, r_ent = tk.Entry(p, width=15), tk.Entry(p, width=15)
     tk.Label(p, text="错误文字").grid(row=0, column=0, padx=10, pady=10)
     tk.Label(p, text="正确文字").grid(row=0, column=1, padx=10, pady=10)
@@ -31,11 +24,18 @@ def show_add_correction_popup(root, dm):
 
     def confirm():
         w_text, r_text = w_ent.get().strip(), r_ent.get().strip()
-        if w_text and r_text:
-            dm.corrections[w_text] = r_text
-            dm.save_corrections()
-            messagebox.showinfo("成功", "错字纠正已保存！")
-            p.destroy()
+        if not w_text or not r_text:
+            messagebox.showwarning("请填写完整", "请输入错误文字和正确文字。", parent=p)
+            (w_ent if not w_text else r_ent).focus_set()
+            return
+        if w_text == r_text:
+            messagebox.showwarning("无需纠正", "错误文字与正确文字相同，请检查。", parent=p)
+            r_ent.focus_set()
+            return
+        dm.corrections[w_text] = r_text
+        dm.save_corrections()
+        messagebox.showinfo("成功", "错字纠正已保存！", parent=p)
+        p.destroy()
 
     def on_closing():
         if w_ent.get().strip() or r_ent.get().strip():
@@ -48,23 +48,26 @@ def show_add_correction_popup(root, dm):
             p.destroy()
 
     p.protocol("WM_DELETE_WINDOW", on_closing)
-    tk.Button(p, text="确认添加", command=confirm, bg="#2E7D32", fg="white", width=15).grid(row=2, column=0, columnspan=2, pady=20)
+    tk.Button(p, text="保存纠正", command=confirm, bg="#2E7D32", fg="white", width=15, pady=6).grid(row=2, column=0, columnspan=2, pady=20)
+    p.columnconfigure(0, weight=1)
+    p.columnconfigure(1, weight=1)
+    p.bind("<Return>", lambda event: confirm())
+    p.bind("<Escape>", lambda event: on_closing())
+    apply_theme(p)
+    center_dialog(p, root, w, h)
+    p.deiconify()
+    w_ent.focus_set()
 
 
 def show_weapon_editor_popup(root, dm):
     """显示武器数据的查看和编辑弹窗"""
     editor_win = tk.Toplevel(root)
+    editor_win.withdraw()
     editor_win.title("武器数据编辑器")
     editor_win.minsize(800, 400)
     editor_win.attributes("-topmost", True)
-
-    w, h = 1180, 700
-    editor_win.update_idletasks()
-    sw = editor_win.winfo_screenwidth()
-    sh = editor_win.winfo_screenheight()
-    x = (sw - w) // 2
-    y = (sh - h) // 2
-    editor_win.geometry(f"{w}x{h}+{x}+{y}")
+    editor_win.transient(root)
+    editor_win.grab_set()
 
     top_bar = tk.Frame(editor_win)
     top_bar.pack(fill="x", padx=10, pady=5)
@@ -88,6 +91,9 @@ def show_weapon_editor_popup(root, dm):
 
     canvas = tk.Canvas(container, highlightthickness=0)
     scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    horizontal = tk.Scrollbar(editor_win, orient="horizontal", command=canvas.xview)
+    horizontal.pack(fill="x", padx=10)
+    canvas.configure(xscrollcommand=horizontal.set)
     scrollable_frame = tk.Frame(canvas)
 
     scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -99,8 +105,7 @@ def show_weapon_editor_popup(root, dm):
         is_modified[0] = True
 
     def configure_canvas(event):
-        if scrollable_frame.winfo_reqwidth() < event.width:
-            canvas.itemconfigure(canvas_frame, width=event.width)
+        canvas.itemconfigure(canvas_frame, width=max(scrollable_frame.winfo_reqwidth(), event.width))
 
     canvas.bind("<Configure>", configure_canvas)
     canvas.configure(yscrollcommand=scrollbar.set)
@@ -108,8 +113,7 @@ def show_weapon_editor_popup(root, dm):
     def _on_mousewheel(event):
         canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-    canvas.bind('<Enter>', lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
-    canvas.bind('<Leave>', lambda e: canvas.unbind_all("<MouseWheel>"))
+    editor_win.bind("<MouseWheel>", _on_mousewheel)
 
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
@@ -190,6 +194,7 @@ def show_weapon_editor_popup(root, dm):
         # 文本框
         for col, field in enumerate(fields):
             e = tk.Entry(scrollable_frame, width=widths[col], font=("微软雅黑", 10))
+            e.input_color = "#FFFFFF" if row_idx % 2 == 0 else "#F2F5F9"
             e.insert(0, default_vals.get(field, ""))
             e.bind("<KeyRelease>", mark_modified)
             e.grid(row=row_idx, column=col + 1, padx=5, pady=2, sticky="ew")
@@ -197,7 +202,7 @@ def show_weapon_editor_popup(root, dm):
 
         # 屏蔽按钮
         shield_var = tk.StringVar(value=default_vals.get("屏蔽", ""))
-        btn_shield = tk.Button(scrollable_frame, width=6, font=("微软雅黑", 9))
+        btn_shield = tk.Button(scrollable_frame, width=8, font=("微软雅黑", 9))
 
         def toggle_shield(btn, var):
             mark_modified()
@@ -207,6 +212,7 @@ def show_weapon_editor_popup(root, dm):
             else:
                 var.set("1")
                 btn.config(bg="#2E7D32", text="已屏蔽", fg="white")
+            style_shield(btn, var)
 
         if shield_var.get() == "1":
             btn_shield.config(bg="#2E7D32", text="已屏蔽", fg="white")
@@ -222,12 +228,23 @@ def show_weapon_editor_popup(root, dm):
                             command=lambda r=row_widgets: remove_row(r))
         btn_del.grid(row=row_idx, column=7, padx=5, pady=2)
         row_widgets.append(btn_del)
+        # 后续分批载入和新增行也应用同一主题，不能只在窗口创建时处理。
+        for widget in row_widgets:
+            if isinstance(widget, tk.Widget):
+                apply_theme(widget)
+        style_shield(btn_shield, shield_var)
 
         if is_new:
             mark_modified()
             table_rows.insert(0, row_widgets)
         else:
             table_rows.append(row_widgets)
+
+    def style_shield(button, variable):
+        blocked = variable.get() == "1"
+        button.theme_role = "warning" if blocked else "secondary"
+        button.config(text="取消屏蔽" if blocked else "屏蔽")
+        apply_theme(button)
 
     def remove_row(row_widgets):
         """删除指定行"""
@@ -272,6 +289,7 @@ def show_weapon_editor_popup(root, dm):
             else:
                 shield_var.set("1")
                 btn_shield.config(bg="#2E7D32", text="已屏蔽", fg="white")
+            style_shield(btn_shield, shield_var)
 
     dm.weapon_list.sort(key=lambda x: str(x.get('星级', '6星')), reverse=True)
 
@@ -288,9 +306,12 @@ def show_weapon_editor_popup(root, dm):
     editor_win.protocol("WM_DELETE_WINDOW", on_closing)
 
     def load_chunk(start_idx=0, chunk_size=20):
+        if not editor_win.winfo_exists():
+            return
         end_idx = min(start_idx + chunk_size, len(dm.weapon_list))
         for i in range(start_idx, end_idx):
             add_row_ui(dm.weapon_list[i], is_new=False)
+        do_search()
         if end_idx < len(dm.weapon_list):
             editor_win.after(10, load_chunk, end_idx, chunk_size)
 
@@ -308,35 +329,6 @@ def show_weapon_editor_popup(root, dm):
     tk.Button(left_footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white", width=12).pack(
         side="left")
 
-    sep = ttk.Separator(footer, orient='vertical')
-    sep.pack(side="left", fill="y", padx=20)
-
-    settings_frame = tk.Frame(footer)
-    settings_frame.pack(side="left")
-
-    keep_potential_var = tk.BooleanVar(value=dm.data.get("keep_potential", True))
-    enable_grad_limit_var = tk.BooleanVar(value=dm.data.get("enable_grad_limit", False))
-    grad_keep_limit_var = tk.StringVar(value=str(dm.data.get("grad_keep_limit", 1)))
-
-    keep_potential_var.trace_add("write", mark_modified)
-    enable_grad_limit_var.trace_add("write", mark_modified)
-    grad_keep_limit_var.trace_add("write", mark_modified)
-
-    tk.Checkbutton(settings_frame, text="保留潜力基质", variable=keep_potential_var, font=("微软雅黑", 9)).pack(side="left", padx=(0, 0))
-    tk.Checkbutton(settings_frame, text="开启毕业锁定上限", variable=enable_grad_limit_var, font=("微软雅黑", 9)).pack(side="left")
-    ent_lim = tk.Entry(settings_frame, textvariable=grad_keep_limit_var, width=4, font=("微软雅黑", 9),justify="center")
-    ent_lim.pack(side="left", padx=(2, 0))
-    tk.Label(settings_frame, text="个", font=("微软雅黑", 9)).pack(side="left")
-
-    def update_entry_state(*args):
-        if enable_grad_limit_var.get():
-            ent_lim.config(state="normal")
-        else:
-            ent_lim.config(state="disabled")
-
-    enable_grad_limit_var.trace_add("write", update_entry_state)
-    update_entry_state()
-
     def clear_records():
         if messagebox.askyesno("确认", "确定要清空所有的基质记录吗？\n清空后将重新开始记录最高等级。",
                                parent=editor_win):
@@ -344,19 +336,15 @@ def show_weapon_editor_popup(root, dm):
             dm.save_records()
             messagebox.showinfo("成功", "记录已清空！", parent=editor_win)
 
-    tk.Button(settings_frame, text="🗑️ 清空基质记录", command=clear_records, bg="#ffebee", fg="#c62828",
+    record_footer = tk.Frame(editor_win)
+    record_footer.pack(fill='x', padx=20, pady=(0, 12))
+    tk.Button(record_footer, text="当前基质记录", command=lambda: show_records(editor_win, dm),
+              font=("微软雅黑", 8)).pack(side="left", padx=(10, 0))
+    tk.Button(record_footer, text="🗑️ 清空基质记录", command=clear_records, bg="#ffebee", fg="#c62828",
               font=("微软雅黑", 8)).pack(side="left", padx=(10, 0))
 
     def save_all():
         """数据持久化保存"""
-        dm.data["keep_potential"] = keep_potential_var.get()
-        dm.data["enable_grad_limit"] = enable_grad_limit_var.get()
-        try:
-            val = int(grad_keep_limit_var.get().strip())
-            dm.data["grad_keep_limit"] = max(1, val)
-        except ValueError:
-            pass
-        dm.save_config()
         new_data = []
         for row in table_rows:
             try:
@@ -392,6 +380,11 @@ def show_weapon_editor_popup(root, dm):
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=editor_win)
 
-    right_footer = tk.Frame(footer)
+    right_footer = tk.Frame(record_footer)
     right_footer.pack(side="right")
     tk.Button(right_footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white",font=("微软雅黑", 10, "bold"), width=20).pack(side="right")
+    apply_theme(editor_win)
+    center_dialog(editor_win, root, 1180, 700, screen_center=True)
+    editor_win.deiconify()
+    search_ent.focus_set()
+    return editor_win

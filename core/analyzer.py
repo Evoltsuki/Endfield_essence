@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 import cv2
 import numpy as np
 import re
@@ -7,6 +8,8 @@ from rapidocr_onnxruntime import RapidOCR
 from opencc import OpenCC
 from tkinter import messagebox
 from utils.sys_helper import resource_path
+from core.selection import target_is_selected
+from core.ocr_regions import text_regions
 
 def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
     """支持中文路径"""
@@ -38,19 +41,30 @@ class VisionAnalyzer:
         except Exception as e:
             messagebox.showerror("初始化失败", str(e))
 
+    @lru_cache(maxsize=64)
+    def _template(self, name, flags=cv2.IMREAD_GRAYSCALE, scale=1.0,
+                  interpolation=cv2.INTER_LINEAR):
+        """缓存模板读取和缩放；修改模板后重启程序生效。"""
+        template = cv_imread(resource_path(os.path.join("img", name)), flags)
+        if template is not None and scale != 1.0:
+            template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=interpolation)
+        return template
+
+    @lru_cache(maxsize=4)
+    def _icon_files(self, prefix):
+        return tuple(f for f in os.listdir(resource_path("img"))
+                     if f.startswith(prefix) and f.endswith(".png"))
+
     def is_on_essence_page(self, window_img, roi, scale):
         """检查当前是否停留在基质背包页面"""
         try:
-            template_path = resource_path(os.path.join("img", "EssenceSlot.png"))
-            template = cv_imread(template_path, cv2.IMREAD_GRAYSCALE)
+            template = self._template("EssenceSlot.png", scale=scale,
+                                      interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
             if template is None:
                 if hasattr(self, 'log_cb'):
                     self.log_cb("[警告] 未找到 EssenceSlot.png，跳过界面检测", "gold")
                 return True
 
-            if scale != 1.0:
-                inter = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=inter)
 
             rx, ry, rw, rh = roi
             margin = int(5 * scale)
@@ -71,6 +85,12 @@ class VisionAnalyzer:
             if hasattr(self, 'log_cb'):
                 self.log_cb(f"[错误] 界面检测异常: {e}", "red")
             return False
+
+    def is_target_selected(self, window_img, box, scale):
+        # 此模板保留示例图的 1440p 原始细节，其他旧模板采用 720p 基准。
+        template = self._template("SelectedCorner.png", cv2.IMREAD_COLOR, scale / 2,
+                                  interpolation=cv2.INTER_AREA if scale < 2 else cv2.INTER_LINEAR)
+        return target_is_selected(window_img, box, template, scale)
 
     def get_inventory_count(self, window_img, roi):
         """读取左上角基质库存总数"""
@@ -111,14 +131,13 @@ class VisionAnalyzer:
                 return False
 
             def check_icon(prefix):
-                files = [f for f in os.listdir(img_dir) if f.startswith(prefix) and f.endswith(".png")]
+                files = self._icon_files(prefix)
                 if not files:
                     return False
 
                 best_val = 0.0
                 for f in files:
-                    tpl_path = os.path.join(img_dir, f)
-                    tpl = cv_imread(tpl_path, cv2.IMREAD_GRAYSCALE)
+                    tpl = self._template(f)
                     if tpl is None:
                         continue
 
@@ -148,11 +167,32 @@ class VisionAnalyzer:
 
     def recognize_and_parse(self, roi_img):
         """预处理图像并执行 OCR 识别"""
+        self.last_ocr_issue = ""
+        self.last_ocr_tokens = []
+        self.last_ocr_path = "detector"
         if roi_img is None or roi_img.size == 0:
+            self.last_ocr_issue = "词条截图为空"
             return "", [], []
+
+        if self.dm.data.get("ocr_mode", "auto") != "legacy":
+            regions = text_regions(roi_img)
+            if regions is not None:
+                crops, boxes = regions
+                # Recognition-only batch: excludes progress bars and grade separators.
+                result, _ = self.ocr.text_rec(crops)
+                if len(result) == 6 and all(float(item[1]) >= .80 for item in result):
+                    names_ok = all(re.fullmatch(r"[\u4e00-\u9fff]{2,12}", str(result[i][0])) for i in (0,2,4))
+                    grades_ok = all(re.fullmatch(r"[+＋]?[1-6]", str(result[i][0]).strip()) for i in (1,3,5))
+                    if names_ok and grades_ok:
+                        parsed = self.parse_ocr_lines([[box, item[0], float(item[1])] for box,item in zip(boxes,result)])
+                        if not self.last_ocr_issue:
+                            self.last_ocr_path = "regions"
+                            return parsed
 
         # 灰度化处理
         gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+        # 屏蔽词条左侧圆点，保留图像尺寸与文字位置，避免圆点拉低识别置信度。
+        gray[:, :int(gray.shape[1] * .05)] = 0
         # 反色处理
         inverted = cv2.bitwise_not(gray)
         # 边缘填充
@@ -175,41 +215,60 @@ class VisionAnalyzer:
 
     def parse_ocr_lines(self, res):
         """解析 OCR 识别结果，提取技能名称与等级"""
+        self.last_ocr_issue = ""
+        self.last_ocr_tokens = res or []
         if not res:
+            self.last_ocr_issue = "未读到词条"
             return "", [], []
 
-        raw_skills, raw_levels = [], []
-        for line in res:
-            txt = self.cc.convert(str(line[1]))
-
-            # 错别字纠正字典替换
-            if self.dm.corrections:
-                for w in sorted(self.dm.corrections.keys(), key=len, reverse=True):
-                    txt = txt.replace(w, self.dm.corrections[w])
-
-            # 提取名称并过滤单字干扰
+        # 名称和等级分属两行时，只按几何位置配对，绝不按返回顺序拼接。
+        names, numbers = [], []
+        for box, raw, confidence in res:
+            txt = self.cc.convert(str(raw))
+            for wrong in sorted(self.dm.corrections or {}, key=len, reverse=True):
+                txt = txt.replace(wrong, self.dm.corrections[wrong])
+            xs, ys = zip(*box)
+            token = dict(x=min(xs), right=max(xs), y=(min(ys)+max(ys))/2,
+                         height=max(ys)-min(ys), confidence=float(confidence))
             name = re.sub(r'[^\u4e00-\u9fff]', '', txt)
+            nums = re.findall(r'(?<!\d)[+＋]?\s*([1-6])(?!\d)', txt)
             if len(name) >= 2:
-                raw_skills.append(name)
-
-            strict_nums = re.findall(r'[+＋]\s*([1-6])', txt)
-            if strict_nums:
-                raw_levels.append(int(strict_nums[-1]))
-            else:
-                nums = re.findall(r'([1-6])', txt)
-                if nums:
-                    raw_levels.append(int(nums[-1]))
-
-        skills = raw_skills
-        levels = raw_levels[:len(skills)]
-
-        while len(levels) < len(skills):
-            levels.append(0)
-
-        # 拼接显示字符串
-        display_parts = [f"{s}{l if l > 0 else ''}" for s, l in zip(skills, levels)]
-
-        return " ".join(display_parts), skills, levels
+                names.append(dict(token, name=name, inline=int(nums[0]) if len(nums)==1 else None))
+            if nums and len(name) < 2:
+                numbers.append(dict(token, value=int(nums[0]) if len(nums)==1 else 0))
+        names.sort(key=lambda t: t['y'])
+        # 名称下面的等级进度条可能被读成“1”等字符，但位于名称列。
+        # 等级数字必须在名称右侧；左侧装饰不参与配对或多余等级判断。
+        # 右侧重复/低置信度数字仍保留，交给原来的严格校验拒绝。
+        if names:
+            name_column_right = min(name['right'] for name in names)
+            numbers = [number for number in numbers if number['x'] > name_column_right]
+        skills, levels, used = [], [], set()
+        for index, name in enumerate(names):
+            level = name['inline']
+            confidence = name['confidence']
+            if level is None:
+                # 游戏等级位于名称下方右侧；允许同一文字行拆成两框。
+                next_y = names[index+1]['y'] if index+1 < len(names) else float('inf')
+                candidates = [(i,n) for i,n in enumerate(numbers) if i not in used
+                              and n['x'] > name['right']
+                              and name['y']-name['height']*.6 <= n['y'] < next_y-name['height']*.6
+                              and n['y']-name['y'] <= name['height']*2.5]
+                if len(candidates)==1:
+                    i, number = candidates[0]
+                    used.add(i)
+                    level = number['value']
+                    confidence = min(confidence, number['confidence'])
+            skills.append(name['name'])
+            levels.append(level or 0)
+            if confidence < .80:
+                self.last_ocr_issue = f"{name['name']}置信度 {confidence:.3f} 低于 0.80"
+        if len(skills)!=3 or len(set(skills))!=3 or any(not 1<=v<=6 for v in levels):
+            self.last_ocr_issue = "需要完整的三个不同词条及 1–6 级等级"
+        if len(used)!=len(numbers):
+            self.last_ocr_issue = "存在无法唯一配对的等级"
+        display = " ".join(f"{s}{v if v else '?'}" for s,v in zip(skills,levels))
+        return display, skills, levels
 
     def clean_csv_text(self, raw):
         """格式化 CSV 武器数据"""
@@ -282,23 +341,9 @@ class VisionAnalyzer:
             return True, matched_weapons, "graduation"
 
         # 潜力基质判定
-        if self.dm.data.get("keep_potential", True):
-            if is_gold_item:
-                has_two_char_skill = any(len(s) == 2 for s in skills)
-                if sum(levels) >= 6 and has_two_char_skill:
-                    return True, [("潜力基质", "5星")], "potential"
-
-                for s, l in zip(skills, levels):
-                    if len(s) == 2 and l == 3:
-                        return True, [("潜力基质", "5星")], "potential"
-            else:
-                total_levels = sum(levels)
-                for s, l in zip(skills, levels):
-                    if len(s) == 2:
-                        if l == 3:
-                            return True, [("潜力基质", "4星")], "potential"
-                        elif l == 2 and total_levels >= 6:
-                            return True, [("潜力基质", "4星")], "potential"
+        from core.potential import matches_potential
+        if matches_potential(self.dm.data, skills, levels, is_gold_item):
+            return True, [("\u6f5c\u529b\u57fa\u8d28", "5\u661f" if is_gold_item else "4\u661f")], "potential"
 
         return False, [], ""
 
@@ -317,13 +362,10 @@ class VisionAnalyzer:
     def _template_match(self, window_img, pos, template_name, scale):
         """基础的局部图像模板匹配方法"""
         try:
-            template_path = resource_path(os.path.join("img", template_name))
-            template = cv_imread(template_path, cv2.IMREAD_GRAYSCALE)
+            template = self._template(template_name, scale=scale)
             if template is None:
                 return False
 
-            if scale != 1.0:
-                template = cv2.resize(template, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
             th, tw = template.shape[:2]
             lx, ly = int(pos[0]), int(pos[1])
@@ -344,13 +386,10 @@ class VisionAnalyzer:
     def find_essences_with_mask(self, window_img, roi, scale):
         """获取列表内基质的位置"""
         try:
-            template_path = resource_path(os.path.join("img", "EssenceGeneral.png"))
-            template_bgr = cv_imread(template_path, cv2.IMREAD_COLOR)
+            template_bgr = self._template("EssenceGeneral.png", cv2.IMREAD_COLOR, scale)
             if template_bgr is None:
                 return []
 
-            if scale != 1.0:
-                template_bgr = cv2.resize(template_bgr, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
 
             lower_green, upper_green = np.array([0, 240, 0]), np.array([10, 255, 10])
             green_mask = cv2.inRange(template_bgr, lower_green, upper_green)

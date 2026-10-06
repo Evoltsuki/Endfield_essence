@@ -1,0 +1,7 @@
+[project]
+name = "endfield-essence"
+version = "4.0"
+description = "Windows essence recognition and marking tool for Arknights: Endfield"
+readme = "readme.md"
+requires-python = ">=3.12"
+dependencies = []
