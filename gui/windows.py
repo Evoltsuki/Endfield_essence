@@ -6,6 +6,16 @@ from gui.theme import apply_theme
 from gui.dialogs import center_dialog
 from gui.records_view import show_records
 
+
+def _trash_icon(master):
+    """用固定像素图标避免 emoji 字体的额外留白。"""
+    icon = tk.PhotoImage(master=master, width=16, height=16)
+    for rect in ((3, 4, 13, 5), (6, 2, 10, 3), (4, 6, 5, 13),
+                 (11, 6, 12, 13), (4, 13, 12, 14), (7, 7, 8, 12),
+                 (9, 7, 10, 12)):
+        icon.put('#A3222C', to=rect)
+    return icon
+
 def show_add_correction_popup(root, dm):
     """显示新增错字纠正内容的弹窗"""
     p = tk.Toplevel(root)
@@ -319,15 +329,17 @@ def show_weapon_editor_popup(root, dm):
 
     footer = tk.Frame(editor_win)
     footer.pack(fill="x", pady=15, padx=20)
-    left_footer = tk.Frame(footer)
-    left_footer.pack(side="left")
+    footer.columnconfigure(5, weight=1)
+    button_font = ("Microsoft YaHei UI", 9)
 
-    tk.Button(left_footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True), bg="#f0f0f0", width=12).pack(
-        side="left", padx=(0, 10))
-    tk.Button(left_footer, text="🗑️ 批量删除", command=batch_delete, bg="#d32f2f", fg="white", width=12).pack(
-        side="left", padx=(0, 10))
-    tk.Button(left_footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white", width=12).pack(
-        side="left")
+    tk.Button(footer, text="+ 新增一行", command=lambda: add_row_ui(is_new=True),
+              bg="#f0f0f0", font=button_font, padx=4, pady=5).grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+    editor_win.trash_icon = _trash_icon(editor_win)
+    tk.Button(footer, text="批量删除", image=editor_win.trash_icon, compound="left",
+              command=batch_delete, bg="#d32f2f", fg="white", font=button_font, padx=4, pady=5).grid(
+        row=0, column=1, sticky="nsew", padx=(0, 6))
+    tk.Button(footer, text="🚫 批量屏蔽", command=batch_shield, bg="#FF9800", fg="white",
+              font=button_font, padx=4, pady=5).grid(row=0, column=2, sticky="nsew", padx=(0, 6))
 
     def clear_records():
         if messagebox.askyesno("确认", "确定要清空所有的基质记录吗？\n清空后将重新开始记录最高等级。",
@@ -336,12 +348,12 @@ def show_weapon_editor_popup(root, dm):
             dm.save_records()
             messagebox.showinfo("成功", "记录已清空！", parent=editor_win)
 
-    record_footer = tk.Frame(editor_win)
-    record_footer.pack(fill='x', padx=20, pady=(0, 12))
-    tk.Button(record_footer, text="当前基质记录", command=lambda: show_records(editor_win, dm),
-              font=("微软雅黑", 8)).pack(side="left", padx=(10, 0))
-    tk.Button(record_footer, text="🗑️ 清空基质记录", command=clear_records, bg="#ffebee", fg="#c62828",
-              font=("微软雅黑", 8)).pack(side="left", padx=(10, 0))
+    tk.Button(footer, text="当前基质记录", command=lambda: show_records(editor_win, dm),
+              font=button_font, padx=4, pady=5).grid(row=0, column=3, sticky="nsew")
+    tk.Button(footer, text="清空基质记录", image=editor_win.trash_icon, compound="left",
+              command=clear_records, bg="#ffebee", fg="#c62828",
+              font=("Microsoft YaHei UI", 9), padx=4, pady=5).grid(
+                  row=0, column=4, sticky="nsew", padx=(6, 0))
 
     def save_all():
         """数据持久化保存"""
@@ -380,9 +392,8 @@ def show_weapon_editor_popup(root, dm):
         except Exception as e:
             messagebox.showerror("保存失败", str(e), parent=editor_win)
 
-    right_footer = tk.Frame(record_footer)
-    right_footer.pack(side="right")
-    tk.Button(right_footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white",font=("微软雅黑", 10, "bold"), width=20).pack(side="right")
+    tk.Button(footer, text="💾 保存所有修改", command=save_all, bg="#2E7D32", fg="white",
+              font=button_font, padx=4, pady=5).grid(row=0, column=6, sticky="nsew", padx=(6, 0))
     apply_theme(editor_win)
     center_dialog(editor_win, root, 1180, 700, screen_center=True)
     editor_win.deiconify()

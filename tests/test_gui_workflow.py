@@ -84,6 +84,8 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertEqual(self.app.log_area.cget('wrap'), 'word')
 
     def test_editor_deferred_and_new_rows_share_styles(self):
+        self.root.deiconify()
+        self.root.update()
         self.dm.weapon_list = [{"武器": f"武器{i}", "星级": "6星"} for i in range(25)]
         editor = show_weapon_editor_popup(self.root, self.dm)
         self.root.after(100, self.root.quit)
@@ -93,6 +95,26 @@ class GuiWorkflowTests(unittest.TestCase):
                 yield child
                 yield from widgets(child)
         buttons = [w for w in widgets(editor) if isinstance(w, tk.Button)]
+        current = next(w for w in buttons if w.cget('text') == '当前基质记录')
+        clear = next(w for w in buttons if w.cget('text') == '清空基质记录')
+        shield = next(w for w in buttons if w.cget('text') == '🚫 批量屏蔽')
+        save = next(w for w in buttons if w.cget('text') == '💾 保存所有修改')
+        for width in (1180, 850):
+            editor.geometry(f'{width}x700')
+            editor.update()
+            self.assertTrue(current.winfo_ismapped() and clear.winfo_ismapped())
+            self.assertEqual(current.winfo_rooty(), clear.winfo_rooty())
+            self.assertEqual(current.winfo_height(), clear.winfo_height())
+            self.assertEqual(clear.winfo_rootx() - current.winfo_rootx() - current.winfo_width(), 6)
+            self.assertEqual(shield.winfo_rooty(), current.winfo_rooty())
+            self.assertEqual(save.winfo_rooty(), current.winfo_rooty())
+            self.assertGreater(current.winfo_rootx(), shield.winfo_rootx() + shield.winfo_width())
+            self.assertGreater(save.winfo_rootx(), clear.winfo_rootx() + clear.winfo_width())
+            self.assertLessEqual(save.winfo_rootx() + save.winfo_width(), editor.winfo_rootx() + editor.winfo_width())
+            self.assertEqual(save.winfo_rootx() + save.winfo_width(), editor.winfo_rootx() + editor.winfo_width() - 20)
+        self.assertEqual(str(clear.cget('compound')), 'left')
+        self.assertEqual(editor.trash_icon.width(), 16)
+        self.dm.save_records.assert_not_called()
         enabled = [w for w in buttons if w.cget('text') == '屏蔽']
         self.assertEqual(len(enabled), 25)
         self.assertEqual(len({w.cget('bg') for w in enabled}), 1)
