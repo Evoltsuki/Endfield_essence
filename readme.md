@@ -89,7 +89,12 @@ core/
   update.py                 武器数据更新
 device/                     游戏窗口、截图与输入控制
 gui/                        主界面、编辑窗口、输出展示与主题
-utils/                      配置读写、日志保留、系统辅助与版本信息
+utils/                      界面与扫描模块共用的基础功能
+  data_manager.py           配置、武器数据、OCR 纠错及基质记录的读写
+  session_log.py            运行会话与扫描日志、识别结果和耗时记录
+  log_retention.py          保留最近 5 次运行日志，跳过正在占用的日志
+  sys_helper.py             资源路径解析、管理员权限与 Windows DPI 适配
+  version.py                统一版本号与窗口标题
 data/                       武器词条库与 OCR 纠错数据
 img/                        图标和图像匹配模板
 scripts/
