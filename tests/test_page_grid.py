@@ -1,8 +1,11 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import numpy as np
-from core.page_grid import GridPage, PageTracker, align_pages, page_swipe_plan
+import cv2
+from core.analyzer import VisionAnalyzer, cv_imread
+from core.page_grid import GridPage, PageTracker, PageScrollFeedback, align_pages, page_swipe_plan
 from core.scanner import AutoScanner
 
 
@@ -94,6 +97,69 @@ class PageGridTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '非空'):
             GridPage.build(image,boxes)
 
+    def test_real_bottom_background_does_not_add_columns(self):
+        image = cv_imread(str(Path(__file__).parent / 'fixtures' / 'grid-bottom.png'))
+        analyzer = VisionAnalyzer.__new__(VisionAnalyzer)
+        for scale in (1, 1.5, 2):
+            with self.subTest(scale=scale):
+                frame = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+                boxes = analyzer.find_essences_with_mask(frame, (0,0,frame.shape[1],frame.shape[0]), scale)
+                built = GridPage.build(frame, boxes)
+                self.assertEqual(len(boxes), 39)
+                self.assertEqual(built.columns, 9)
+                self.assertEqual(built.row_counts, [9,9,9,9,3])
+                self.assertTrue(built.has_empty_tail)
+                fresh, _, _ = PageTracker().observe(built)
+                self.assertEqual(len(fresh), 39)
+
+    def test_missing_middle_cell_still_rejected(self):
+        p = page()
+        boxes = [box for r, row in enumerate(p.rows) for c, box in enumerate(row) if (r,c)!=(2,4)]
+        with self.assertRaisesRegex(ValueError, '中间缺格'):
+            GridPage.build(np.zeros((400,700,3),np.uint8), boxes)
+
+    def test_clipped_bottom_is_deferred_until_overlap_is_visible(self):
+        tracker = PageTracker(minimum_rows=1)
+        first, _, _ = tracker.observe(page(y=66), visible_bottom=360, selection_margin=12)
+        self.assertEqual(len(first), 36)
+        self.assertEqual(tracker.deferred, 9)
+        self.assertNotIn((4,0), tracker.seen)
+        second, alignment, _ = tracker.observe(page(4), visible_bottom=360, selection_margin=12)
+        self.assertEqual(alignment['offset'], 4)
+        self.assertEqual(len(second), 45)
+        coordinates = [item[1:] for item in first+second]
+        self.assertEqual(len(set(coordinates)), 81)
+        self.assertIn((5,1), coordinates)
+
+    def test_scanner_sweeps_short_bottom_once_without_clicking_empty_slots(self):
+        controller, analyzer = Mock(), Mock()
+        controller.get_scaled_layout.return_value = {
+            'env': {'res_w':1000,'res_h':800,'ui_scale':1},
+            'roi_final': (0,0,900,400), 'inventory_tab_roi':(0,0,1,1)}
+        controller.wait_grid_stable.return_value = np.full((800,1000,3),255,np.uint8)
+        analyzer.is_on_essence_page.return_value = True
+        analyzer.is_gold.return_value = True
+        tail = page(3, y=42)
+        tail.row_counts = [9,9,9,9,3]
+        scanner = AutoScanner(SimpleNamespace(data={}),controller,analyzer,{})
+        visited = []
+        scanner._scan_one = lambda layout, box, gold, row, col: visited.append((row,col)) or True
+        with patch('core.scanner.GridPage.build', side_effect=[page(),tail]):
+            scanner.start()
+        self.assertEqual(len(visited), 66)
+        self.assertEqual(len(set(visited)), 66)
+        self.assertEqual(visited[-3:], [(8,1),(8,2),(8,3)])
+        controller.swipe_page.assert_called_once()
+        visited.clear()
+        controller.reset_mock()
+        scanner = AutoScanner(SimpleNamespace(data={}),controller,analyzer,{},
+                              preview=True, sample_pattern='first_column')
+        scanner._scan_one = lambda layout, box, gold, row, col: visited.append((row,col)) or True
+        with patch('core.scanner.GridPage.build', side_effect=[page(),tail]):
+            scanner.start()
+        self.assertEqual(visited, [(row,1) for row in range(1,9)])
+        controller.swipe_page.assert_called_once()
+
     def test_cross_sample_order_and_no_swipe(self):
         controller, analyzer = Mock(), Mock()
         controller.get_scaled_layout.return_value = {
@@ -136,3 +202,52 @@ class PageGridTests(unittest.TestCase):
                 self.assertEqual(len(visited),limit)
                 self.assertEqual(len(set(visited)),limit)
                 self.assertEqual(controller.swipe_page.call_count,swipes)
+
+
+class ScrollFeedbackTests(unittest.TestCase):
+    def test_repeated_drag_loss_does_not_accumulate_at_multiple_scales(self):
+        for scale in (1, 1.5, 2):
+            with self.subTest(scale=scale):
+                feedback = PageScrollFeedback(scale)
+                current = page(scale=scale)
+                feedback.observe(current, None)
+                origin = 0
+                errors = []
+                for step in range(30):
+                    plan = feedback.plan(current, (0,0,800*scale,400*scale))
+                    loss = (20 + (step % 3 - 1))*scale
+                    actual = plan['distance']-loss
+                    origin += plan['advance_rows']
+                    y = (current.rows[0][0][1]+plan['advance_rows']*current.pitch-actual)/scale
+                    following = page(origin, scale=scale, y=y)
+                    alignment = align_pages(current, following, minimum_rows=1)
+                    feedback.observe(following, alignment)
+                    errors.append(abs(following.rows[0][0][1]-20*scale))
+                    current = following
+                self.assertLessEqual(max(errors), 5*scale)
+                self.assertLessEqual(errors[-1], 3*scale)
+                self.assertGreater(np.median(feedback.losses), 16*scale)
+
+    def test_bottom_clamping_and_repeated_page_are_not_learned_as_drag_loss(self):
+        feedback = PageScrollFeedback(1)
+        for after in (page(1, y=12), page()):
+            before = page()
+            feedback.plan(before, (0,0,800,400))
+            feedback.observe(after, align_pages(before, after))
+            self.assertFalse(feedback.losses)
+        tail = page(4)
+        tail.row_counts = [9,9,9,9,3]
+        feedback.plan(page(), (0,0,800,400))
+        feedback.observe(tail, align_pages(page(), tail, minimum_rows=1))
+        self.assertFalse(feedback.losses)
+
+    def test_correction_falls_back_to_two_rows_when_drag_would_leave_grid(self):
+        plan = page_swipe_plan(page(y=0), (0,0,800,400), 1, compensation=20, drift=15)
+        self.assertEqual(plan['overlap_rows'], 2)
+        self.assertGreaterEqual(plan['y']-plan['distance'], 15)
+
+    def test_phase_wrap_does_not_add_an_entire_row_to_drag(self):
+        feedback = PageScrollFeedback(1)
+        feedback.observe(page(y=0), None)
+        plan = feedback.plan(page(y=58), (0,0,800,400))
+        self.assertEqual(plan['drift_correction'], -2)

@@ -1,0 +1,40 @@
+{
+  "article": {
+    "id": "01a111ba-3bea-7425-91ba-2e60b7ef5366",
+    "namespace": 0,
+    "title": "武器/悠久传承",
+    "currentRevisionId": "01a111ba-3beb-73e9-ba42-f17dbf2ccd6d",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a111ba-3beb-73e9-ba42-f17dbf2ccd6d",
+    "articleId": "01a111ba-3bea-7425-91ba-2e60b7ef5366",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "悠久传承",
+            "rarity": 6,
+            "meta": [
+              {
+                "label": "主要获取方式",
+                "value": "协议通行证·武器补给"
+              },
+              {
+                "label": "技能",
+                "value": "智识提升；寒冷伤害提升；效益"
+              },
+              {
+                "label": "上线时间",
+                "value": "2026年10月15日"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

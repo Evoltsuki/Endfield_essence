@@ -1,0 +1,40 @@
+{
+  "article": {
+    "id": "01a111ba-388b-78c6-a4ca-1832a23afa42",
+    "namespace": 0,
+    "title": "武器/唤月",
+    "currentRevisionId": "01a111ba-388d-7187-901c-7de6485a04a5",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a111ba-388d-7187-901c-7de6485a04a5",
+    "articleId": "01a111ba-388b-78c6-a4ca-1832a23afa42",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "唤月",
+            "rarity": 6,
+            "meta": [
+              {
+                "label": "主要获取方式",
+                "value": "武库交易所·限时特卖"
+              },
+              {
+                "label": "技能",
+                "value": "意志提升；攻击提升；附术"
+              },
+              {
+                "label": "上线时间",
+                "value": "2026年11月5日"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

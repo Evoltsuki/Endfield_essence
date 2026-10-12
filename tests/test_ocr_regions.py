@@ -31,7 +31,7 @@ class RegionOCRTests(unittest.TestCase):
         self.v.ocr.assert_not_called()
 
     def test_low_confidence_or_malformed_grade_falls_back(self):
-        for bad in (("+6", .7), ("1 +6", .99), ("+16", .99)):
+        for bad in (("+6", .59), ("1 +6", .99), ("+16", .99)):
             with self.subTest(bad=bad):
                 values = list(self.values)
                 values[1] = bad
@@ -39,6 +39,14 @@ class RegionOCRTests(unittest.TestCase):
                 self.v.recognize_and_parse(self.image)
                 self.assertEqual(self.v.last_ocr_path, "detector")
                 self.assertFalse(self.v.last_ocr_issue)
+
+    def test_region_path_accepts_point_six_without_detector(self):
+        self.v.ocr.text_rec.return_value = ([(name, .60) for name, _ in self.values], .1)
+        _, names, levels = self.v.recognize_and_parse(self.image)
+        self.assertEqual(names, ['智识提升', '攻击提升', '夜幕'])
+        self.assertEqual(levels, [6, 6, 3])
+        self.assertEqual(self.v.last_ocr_path, 'regions')
+        self.v.ocr.assert_not_called()
 
     def test_legacy_mode_does_not_use_regions(self):
         self.v.dm.data["ocr_mode"] = "legacy"

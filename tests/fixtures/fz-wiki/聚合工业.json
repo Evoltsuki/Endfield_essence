@@ -1,0 +1,40 @@
+{
+  "article": {
+    "id": "01a111ba-3574-759f-913e-e2f51f9f1190",
+    "namespace": 0,
+    "title": "武器/聚合工业",
+    "currentRevisionId": "01a111ba-3575-7bf2-9167-76b1f82047c1",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a111ba-3575-7bf2-9167-76b1f82047c1",
+    "articleId": "01a111ba-3574-759f-913e-e2f51f9f1190",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "聚合工业",
+            "rarity": 6,
+            "meta": [
+              {
+                "label": "主要获取方式",
+                "value": "协议通行证·武器补给"
+              },
+              {
+                "label": "技能",
+                "value": "意志提升；电磁伤害提升；迸发"
+              },
+              {
+                "label": "上线时间",
+                "value": "2026年10月15日"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

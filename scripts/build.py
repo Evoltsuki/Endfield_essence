@@ -27,6 +27,7 @@ def main():
     data.mkdir(exist_ok=True)
     for name in ('weapon_data.csv', 'Jiucuo.json'):
         shutil.copy2(BASE/'data'/name, data/name)
+    shutil.copy2(BASE/'CHANGELOG.md', release/'更新日志.md')
     (release/'使用说明.txt').write_text(
         f'基质自动识别工具 v{APP_VERSION} -by洁柔厨\n\n'
         '双击exe启动，无需安装Python。请保留同目录data文件夹。\n'
@@ -34,13 +35,16 @@ def main():
         '锁定基质规则可设置潜力保留条件及锁定上限。\n'
         '日志保留最近5次运行，可通过日志目录按钮查看。\n'
         '当前基质记录可查看各武器保留的词条总等级。\n'
+        '本版本变更详见同目录更新日志.md。\n'
+        '升级前请备份旧版data目录；个人设置和基质记录可复制到新版data目录。\n'
+        '若需保留武器屏蔽、自定义条目或OCR纠错，也请迁移旧版对应数据文件。\n'
         '本工具完全免费，群号：1006580737。\n', encoding='utf8')
     # ZIP只收入发布必需文件，排除本机运行生成的配置、记录和日志。
     import zipfile
     archive = BASE/f'Endfield_essence_v{APP_VERSION}.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
         for path in (release/f'Endfield_essence_v{APP_VERSION}.exe', data/'weapon_data.csv',
-                     data/'Jiucuo.json', release/'使用说明.txt'):
+                     data/'Jiucuo.json', release/'使用说明.txt', release/'更新日志.md'):
             output.write(path, str(Path(release.name)/path.relative_to(release)))
     print(f'Release: {release}\nArchive: {archive}')
 

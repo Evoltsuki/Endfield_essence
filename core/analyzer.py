@@ -11,6 +11,8 @@ from utils.sys_helper import resource_path
 from core.selection import target_is_selected
 from core.ocr_regions import text_regions
 
+OCR_MIN_CONFIDENCE = 0.60
+
 def cv_imread(file_path, flags=cv2.IMREAD_COLOR):
     """支持中文路径"""
     try:
@@ -180,7 +182,8 @@ class VisionAnalyzer:
                 crops, boxes = regions
                 # Recognition-only batch: excludes progress bars and grade separators.
                 result, _ = self.ocr.text_rec(crops)
-                if len(result) == 6 and all(float(item[1]) >= .80 for item in result):
+                if len(result) == 6 and all(np.isfinite(float(item[1])) and
+                                            float(item[1]) >= OCR_MIN_CONFIDENCE for item in result):
                     names_ok = all(re.fullmatch(r"[\u4e00-\u9fff]{2,12}", str(result[i][0])) for i in (0,2,4))
                     grades_ok = all(re.fullmatch(r"[+＋]?[1-6]", str(result[i][0]).strip()) for i in (1,3,5))
                     if names_ok and grades_ok:
@@ -258,11 +261,12 @@ class VisionAnalyzer:
                     i, number = candidates[0]
                     used.add(i)
                     level = number['value']
-                    confidence = min(confidence, number['confidence'])
+                    confidence = (min(confidence, number['confidence'])
+                                  if np.isfinite(number['confidence']) else float('nan'))
             skills.append(name['name'])
             levels.append(level or 0)
-            if confidence < .80:
-                self.last_ocr_issue = f"{name['name']}置信度 {confidence:.3f} 低于 0.80"
+            if not np.isfinite(confidence) or confidence < OCR_MIN_CONFIDENCE:
+                self.last_ocr_issue = f"{name['name']}置信度 {confidence:.3f} 未达到 {OCR_MIN_CONFIDENCE:.2f}"
         if len(skills)!=3 or len(set(skills))!=3 or any(not 1<=v<=6 for v in levels):
             self.last_ocr_issue = "需要完整的三个不同词条及 1–6 级等级"
         if len(used)!=len(numbers):
@@ -404,7 +408,7 @@ class VisionAnalyzer:
 
             res = cv2.matchTemplate(search_area, template_bgr, cv2.TM_CCORR_NORMED, mask=valid_mask)
             threshold = 0.90
-            loc = np.where(res >= threshold)
+            loc = np.where(np.isfinite(res) & (res >= threshold))
 
             th, tw = template_bgr.shape[:2]
             boxes = [[pt[0] + rx, pt[1] + ry, pt[0] + rx + tw, pt[1] + ry + th] for pt in zip(*loc[::-1])]
@@ -423,8 +427,18 @@ class VisionAnalyzer:
                 if keep:
                     final_boxes.append(b)
 
-            final_boxes.sort(key=lambda b: (b[1] // (th // 2), b[0]))
-            return final_boxes
+            # 掩膜相关性也会命中底部暗色渐变背景。建网格之前剔除空位，
+            # 否则这些错位的框会把末行误算成十几列。只检查去重后的框。
+            occupied_boxes = []
+            for bx1, by1, bx2, by2 in final_boxes:
+                center = window_img[by1+int(th*.3):by1+int(th*.7),
+                                    bx1+int(tw*.3):bx1+int(tw*.7)]
+                mean, deviation = cv2.meanStdDev(cv2.cvtColor(center, cv2.COLOR_BGR2GRAY))
+                if mean[0, 0] < 60 and deviation[0, 0] < 15:
+                    continue
+                occupied_boxes.append([bx1, by1, bx2, by2])
+            occupied_boxes.sort(key=lambda b: (b[1] // (th // 2), b[0]))
+            return occupied_boxes
 
         except Exception:
             return []

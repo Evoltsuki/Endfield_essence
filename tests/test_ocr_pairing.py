@@ -28,8 +28,25 @@ class PairingTests(unittest.TestCase):
         self.assertTrue(self.v.last_ocr_issue)
 
     def test_low_confidence_rejected(self):
-        self.v.parse_ocr_lines([token('智识提升+6', 0, 0), token('攻击提升+6', 0, 40), token('夜幕+3', 0, 80, .6)])
+        self.v.parse_ocr_lines([token('智识提升+6', 0, 0), token('攻击提升+6', 0, 40), token('夜幕+3', 0, 80, .59)])
         self.assertTrue(self.v.last_ocr_issue)
+
+    def test_confidence_boundary_for_names_and_separate_grades(self):
+        for confidence in (.60, .76):
+            with self.subTest(confidence=confidence):
+                _, skills, levels = self.v.parse_ocr_lines([
+                    token('意志提升', 0, 0, confidence), token('+1', 180, 15, confidence),
+                    token('力量提升', 0, 40), token('+2', 180, 55),
+                    token('主能力提升', 0, 80), token('+1', 180, 95)])
+                self.assertFalse(self.v.last_ocr_issue)
+                self.assertEqual(skills, ['意志提升', '力量提升', '主能力提升'])
+                self.assertEqual(levels, [1, 2, 1])
+
+    def test_nonfinite_confidence_is_rejected(self):
+        for confidence in (float('nan'), float('inf')):
+            self.v.parse_ocr_lines(self.names + [
+                token('+6', 180, 15, confidence), token('+6', 180, 55), token('+3', 180, 95)])
+            self.assertTrue(self.v.last_ocr_issue)
 
     def test_duplicate_number_is_ambiguous(self):
         self.v.parse_ocr_lines(self.names + [token('+6', 180, 15), token('+2', 230, 15), token('+6', 180, 55), token('+3', 180, 95)])
@@ -55,5 +72,5 @@ class PairingTests(unittest.TestCase):
 
     def test_low_confidence_right_grade_still_rejected(self):
         self.v.parse_ocr_lines(self.names + [
-            token('+6', 180, 15, .62), token('+6', 180, 55), token('+3', 180, 95)])
+            token('+6', 180, 15, .59), token('+6', 180, 55), token('+3', 180, 95)])
         self.assertTrue(self.v.last_ocr_issue)

@@ -29,7 +29,9 @@ class GuiWorkflowTests(unittest.TestCase):
     def test_cancel_preparation_never_activates_game(self):
         with patch("gui.app.threading.Thread"):
             self.app.start_thread()
+        self.assertFalse(self.app.updateWeapon.cancelled())
         self.app.stop_scan()
+        self.assertTrue(self.app.updateWeapon.cancelled())
         self.app.after_update_weapon({})
         self.controller.activate_game.assert_not_called()
         self.assertEqual(str(self.app.run_btn["state"]), "normal")

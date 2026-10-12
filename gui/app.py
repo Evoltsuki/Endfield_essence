@@ -316,6 +316,7 @@ class MatrixAssistantApp:
             "log": self.gui_log,
             "lock": self.add_to_lock_list,
             "result": self.add_scan_result,
+            "cancelled": lambda: self.cancel_prepare,
             "finish": self.on_scan_finish
         }
         self.updateWeapon = UpdateWeapon(self.dm, callbacks)

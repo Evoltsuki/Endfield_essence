@@ -1,0 +1,53 @@
+{
+  "article": {
+    "id": "01a0d17a-37dc-7f16-acf9-cf526ec82edf",
+    "namespace": 0,
+    "title": "武器/点心时刻",
+    "currentRevisionId": "01a0d17a-37de-715e-b79b-2a4fe1996b5b",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a0d17a-37de-715e-b79b-2a4fe1996b5b",
+    "articleId": "01a0d17a-37dc-7f16-acf9-cf526ec82edf",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "点心时刻",
+            "rarity": 5,
+            "meta": []
+          }
+        },
+        {
+          "type": "endfieldCardWeaponSkills",
+          "attrs": {
+            "attributeTable": {
+              "rows": [
+                {
+                  "label": "力量提升·中"
+                },
+                {
+                  "label": "治疗效率提升·中"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "type": "wikiCardItem",
+              "attrs": {
+                "itemType": "endfieldCardWeaponSkills__skills",
+                "data": {
+                  "name": "医疗·甜与梦"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

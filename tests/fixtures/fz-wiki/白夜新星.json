@@ -1,0 +1,53 @@
+{
+  "article": {
+    "id": "2d8b5ad7-89e8-4c2b-9c67-d2f30cb49861",
+    "namespace": 0,
+    "title": "武器/白夜新星",
+    "currentRevisionId": "01a0c40b-378d-72a6-b31b-e9563a150a03",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a0c40b-378d-72a6-b31b-e9563a150a03",
+    "articleId": "2d8b5ad7-89e8-4c2b-9c67-d2f30cb49861",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "白夜新星",
+            "rarity": 6,
+            "meta": []
+          }
+        },
+        {
+          "type": "endfieldCardWeaponSkills",
+          "attrs": {
+            "attributeTable": {
+              "rows": [
+                {
+                  "label": "主能力提升·大"
+                },
+                {
+                  "label": "源石技艺强度提升·大"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "type": "wikiCardItem",
+              "attrs": {
+                "itemType": "endfieldCardWeaponSkills__skills",
+                "data": {
+                  "name": "附术·白夜新星"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

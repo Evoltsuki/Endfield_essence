@@ -1,5 +1,6 @@
 """整页几何与重叠行跟踪。相同缩略图不能独立证明物品相同。"""
 from dataclasses import dataclass
+from collections import deque
 import cv2
 import numpy as np
 
@@ -10,6 +11,14 @@ class GridPage:
     features: list
     columns: int
     pitch: float
+    row_counts: list | None = None
+
+    @property
+    def has_empty_tail(self):
+        return self.row_counts is not None and self.row_counts[-1] < self.columns
+
+    def occupied_columns(self, row):
+        return self.columns if self.row_counts is None else self.row_counts[row]
 
     @classmethod
     def build(cls, image, boxes):
@@ -24,6 +33,7 @@ class GridPage:
         for row in rows:
             row.sort(key=lambda b: b[0])
         columns = max(map(len, rows))
+        row_counts = list(map(len, rows))
         # 只允许最后一行右侧缺格，且缺格位置必须确认为暗色空白。
         # 中间漏检不得被压缩成更少列。
         reference = next(row for row in rows if len(row)==columns)
@@ -64,7 +74,7 @@ class GridPage:
                 crop = image[y1+int(h*.2):y1+int(h*.8), x1+int(w*.2):x1+int(w*.8)]
                 values.append(cv2.resize(crop, (24,24), interpolation=cv2.INTER_AREA).astype(np.float32))
             features.append(values)
-        return cls(rows, features, columns, pitch)
+        return cls(rows, features, columns, pitch, row_counts)
 
 
 def describe_feature(feature):
@@ -127,8 +137,9 @@ class PageTracker:
         self.origin = 0
         self.seen = set()
         self.repeats = 0
+        self.deferred = 0
 
-    def observe(self, page):
+    def observe(self, page, visible_bottom=None, selection_margin=0):
         alignment = None
         if self.previous is not None:
             alignment = align_pages(self.previous, page, self.minimum_rows)
@@ -139,8 +150,17 @@ class PageTracker:
             self.repeats = self.repeats+1 if repeated else 0
             self.origin += offset
         fresh = []
+        self.deferred = 0
         for row, boxes in enumerate(page.rows):
             for col, box in enumerate(boxes):
+                if col >= page.occupied_columns(row):
+                    continue
+                # 检测模板比选中框小。底部边框尚未完整露出的格子留到下一屏，
+                # 不加入 seen；它们将作为重叠行重新进入扫描。
+                if visible_bottom is not None and box[3]+selection_margin > visible_bottom:
+                    if (self.origin+row, col) not in self.seen:
+                        self.deferred += 1
+                    continue
                 key = (self.origin+row, col)
                 if key not in self.seen:
                     fresh.append((box, key[0]+1, col+1))
@@ -149,18 +169,61 @@ class PageTracker:
         return fresh, alignment, self.repeats>=2
 
 
-def page_swipe_plan(page, roi, scale, overlap_rows=None):
+def page_swipe_plan(page, roi, scale, overlap_rows=None, compensation=None, drift=0):
     if overlap_rows is None:
         overlap_rows = 1 if single_row_is_unique(page, len(page.rows)-1) else 2
     if overlap_rows not in (1, 2):
         raise ValueError("重叠行数必须为1或2")
     if len(page.rows)<3:
         raise ValueError("完整可见行不足三行，无法保留两行重叠翻页")
-    advance = len(page.rows)-overlap_rows
-    distance = round(advance*page.pitch + 16*scale)
+    compensation = 16*scale if compensation is None else compensation
+    drift = float(np.clip(drift, -page.pitch*.25, page.pitch*.25))
     x,y,w,h = roi
     start_y = min(y+h-round(25*scale), page.rows[-1][0][3]-round(10*scale))
+    advance = len(page.rows)-overlap_rows
+    distance = round(advance*page.pitch + compensation + drift)
+    # 修正累计偏移后可能放不下四行拖动，此时多保留一行重叠。
+    if start_y-distance < y+round(15*scale) and overlap_rows == 1:
+        overlap_rows = 2
+        advance = len(page.rows)-overlap_rows
+        distance = round(advance*page.pitch + compensation + drift)
     if start_y-distance < y+round(15*scale):
         raise ValueError("滑动轨迹超出网格可视区域")
     start_x = (page.rows[0][0][0]+page.rows[0][0][2])//2
-    return dict(x=start_x, y=start_y, distance=distance, advance_rows=advance, overlap_rows=overlap_rows)
+    return dict(x=start_x, y=start_y, distance=distance, advance_rows=advance,
+                overlap_rows=overlap_rows, compensation=float(compensation),
+                drift_correction=drift, content_distance=advance*page.pitch+drift)
+
+
+class PageScrollFeedback:
+    """仅用已通过重叠校验的位移，修正下次拖动的起步损失与累计偏移。"""
+
+    def __init__(self, scale):
+        self.scale = scale
+        self.anchor_y = None
+        self.losses = deque(maxlen=3)
+        self.pending = None
+
+    def observe(self, page, alignment):
+        if self.anchor_y is None:
+            self.anchor_y = page.rows[0][0][1]
+        plan, self.pending = self.pending, None
+        if plan is None or alignment is None or page.has_empty_tail:
+            return
+        displacement = alignment['displacement']
+        loss = plan['distance']-displacement
+        # 到底时滑动被截短，不能把剩余距离学习为下一次的补偿。
+        if (alignment['offset'] == plan['advance_rows']
+                and abs(displacement-plan['content_distance']) < page.pitch*.25
+                and 0 <= loss <= page.pitch*.35):
+            self.losses.append(loss)
+
+    def plan(self, page, roi, overlap_rows=None):
+        if self.anchor_y is None:
+            self.observe(page, None)
+        # 首行跨过上边界时会换成下一行，取相位而不是整行高度的误差。
+        drift = (page.rows[0][0][1]-self.anchor_y+page.pitch/2) % page.pitch-page.pitch/2
+        compensation = float(np.median(self.losses)) if self.losses else 16*self.scale
+        self.pending = page_swipe_plan(page, roi, self.scale,
+                                       overlap_rows=overlap_rows, compensation=compensation, drift=drift)
+        return self.pending

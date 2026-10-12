@@ -1,0 +1,53 @@
+{
+  "article": {
+    "id": "01a05f06-bc47-7ee0-8c5d-1cd4fa260c74",
+    "namespace": 0,
+    "title": "武器/苦难的尽头",
+    "currentRevisionId": "01a0c40b-4572-7a38-99de-b9b3960da86d",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a0c40b-4572-7a38-99de-b9b3960da86d",
+    "articleId": "01a05f06-bc47-7ee0-8c5d-1cd4fa260c74",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "苦难的尽头",
+            "rarity": 6,
+            "meta": []
+          }
+        },
+        {
+          "type": "endfieldCardWeaponSkills",
+          "attrs": {
+            "attributeTable": {
+              "rows": [
+                {
+                  "label": "敏捷提升·大"
+                },
+                {
+                  "label": "自然伤害提升·大"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "type": "wikiCardItem",
+              "attrs": {
+                "itemType": "endfieldCardWeaponSkills__skills",
+                "data": {
+                  "name": "迸发·长夜拂晓"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

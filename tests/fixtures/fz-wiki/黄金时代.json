@@ -1,0 +1,53 @@
+{
+  "article": {
+    "id": "019f68f4-7e8b-74f8-bd68-524627d7c274",
+    "namespace": 0,
+    "title": "武器/黄金时代",
+    "currentRevisionId": "01a0c40b-458d-7e8b-bbb5-4bfdc3234db5",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a0c40b-458d-7e8b-bbb5-4bfdc3234db5",
+    "articleId": "019f68f4-7e8b-74f8-bd68-524627d7c274",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "黄金时代",
+            "rarity": 6,
+            "meta": []
+          }
+        },
+        {
+          "type": "endfieldCardWeaponSkills",
+          "attrs": {
+            "attributeTable": {
+              "rows": [
+                {
+                  "label": "意志提升·大"
+                },
+                {
+                  "label": "治疗效率提升·大"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "type": "wikiCardItem",
+              "attrs": {
+                "itemType": "endfieldCardWeaponSkills__skills",
+                "data": {
+                  "name": "追袭·大英雄"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

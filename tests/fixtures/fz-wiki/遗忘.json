@@ -1,0 +1,53 @@
+{
+  "article": {
+    "id": "7ffe01e8-e630-4393-b0f5-3556de5409b7",
+    "namespace": 0,
+    "title": "武器/遗忘",
+    "currentRevisionId": "01a0c40b-3b3f-7573-a35d-85bd2e0e32e8",
+    "readVisibility": "PUBLIC",
+    "status": "ACTIVE"
+  },
+  "revision": {
+    "id": "01a0c40b-3b3f-7573-a35d-85bd2e0e32e8",
+    "articleId": "7ffe01e8-e630-4393-b0f5-3556de5409b7",
+    "contentJson": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "endfieldCardWeaponHero",
+          "attrs": {
+            "name": "遗忘",
+            "rarity": 6,
+            "meta": []
+          }
+        },
+        {
+          "type": "endfieldCardWeaponSkills",
+          "attrs": {
+            "attributeTable": {
+              "rows": [
+                {
+                  "label": "智识提升·大"
+                },
+                {
+                  "label": "法术提升·大"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "type": "wikiCardItem",
+              "attrs": {
+                "itemType": "endfieldCardWeaponSkills__skills",
+                "data": {
+                  "name": "夜幕·耻辱"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

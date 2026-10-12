@@ -13,7 +13,7 @@ import cv2
 import win32gui
 import win32con
 from core.analyzer import VisionAnalyzer
-from core.page_grid import GridPage, PageTracker, page_swipe_plan
+from core.page_grid import GridPage, PageTracker, PageScrollFeedback
 from device.controller import DeviceController
 from pynput import keyboard
 from utils.data_manager import DataManager
@@ -66,6 +66,7 @@ def main():
             time.sleep(1)
         layout = controller.get_scaled_layout()
         env, roi = layout['env'], layout['roi_final']
+        scroll = PageScrollFeedback(env['ui_scale'])
         report['env'] = env
         if args.size:
             report['requested_size'] = args.size
@@ -85,15 +86,18 @@ def main():
             cv2.imencode('.png', image)[1].tofile(str(output/f'page-{step}.png'))
             boxes = analyzer.find_essences_with_mask(image, roi, env['ui_scale'])
             page = GridPage.build(image, boxes)
-            fresh, alignment, ended = tracker.observe(page)
+            fresh, alignment, ended = tracker.observe(
+                page, visible_bottom=roi[1]+roi[3], selection_margin=12*env['ui_scale'])
+            scroll.observe(page, alignment)
             record = dict(rows=len(page.rows), columns=page.columns, pitch=page.pitch,
                           new_cells=len(fresh), alignment=alignment, ended=ended,
-                          wait=dict(controller.last_wait), boxes=page.rows)
+                          wait=dict(controller.last_wait), boxes=page.rows,
+                          empty_tail=page.has_empty_tail, deferred=tracker.deferred)
             report['pages'].append(record)
             log(record)
-            if ended or step==args.steps:
+            if ended or page.has_empty_tail or step==args.steps:
                 break
-            plan = page_swipe_plan(page, roi, env['ui_scale'])
+            plan = scroll.plan(page, roi)
             record['swipe'] = plan
             started = time.perf_counter()
             controller.swipe_page(env, plan, lambda: running[0])

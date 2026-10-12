@@ -1,7 +1,7 @@
 import cv2
 import traceback
 import time
-from core.page_grid import GridPage, PageTracker, page_swipe_plan
+from core.page_grid import GridPage, PageTracker, PageScrollFeedback
 
 
 class ScanCancelled(Exception):
@@ -13,7 +13,7 @@ class AutoScanner:
                  preview=False):
         if max_items is not None and (type(max_items) is not int or max_items < 1):
             raise ValueError("max_items 必须是正整数或 None")
-        if sample_pattern not in (None, "cross"):
+        if sample_pattern not in (None, "cross", "first_column"):
             raise ValueError("未知抽样模式")
         self.sample_pattern = sample_pattern
         self.preview = preview
@@ -466,6 +466,7 @@ class AutoScanner:
             return
         env, roi = layout["env"], layout["roi_final"]
         tracker = PageTracker(minimum_rows=1)
+        scroll = PageScrollFeedback(env["ui_scale"])
         page_number = 0
         self.log_cb(f"[整页] 分辨率 {env['res_w']}x{env['res_h']}，按实际网格列数扫描", "blue")
         while self.running:
@@ -479,7 +480,9 @@ class AutoScanner:
             boxes = self.analyzer.find_essences_with_mask(image, roi, env["ui_scale"])
             try:
                 page = GridPage.build(image, boxes)
-                fresh, alignment, ended = tracker.observe(page)
+                fresh, alignment, ended = tracker.observe(
+                    page, visible_bottom=roi[1]+roi[3], selection_margin=12*env["ui_scale"])
+                scroll.observe(page, alignment)
             except ValueError as exc:
                 self.log_cb(f"[错误] {exc}", "red")
                 return
@@ -487,6 +490,12 @@ class AutoScanner:
             self.log_cb(f"[整页] 第 {page_number} 屏：{len(page.rows)} 行 × {page.columns} 列，新增 {len(fresh)} 格，行距 {page.pitch:.1f}px", "blue")
             if alignment:
                 self.log_cb(f"[翻页校验] 推进 {alignment['offset']} 行，重叠 {alignment['overlap_rows']} 行，匹配 {alignment['match_ratio']:.0%}，位移 {alignment['displacement']:.1f}px", "gray")
+            if tracker.deferred:
+                self.log_cb(f"[整页] 底部 {tracker.deferred} 格选中框空间不足，保留到下一屏识别", "gray")
+            if page.has_empty_tail:
+                self.log_cb("[整页] 检测到末行右侧空位，进入尾扫，按全局行列补扫剩余基质", "blue")
+            if self.sample_pattern == "first_column":
+                fresh = [item for item in fresh if item[2] == 1]
             if self.sample_pattern == "cross":
                 if page.columns<5 or len(page.rows)<5:
                     self.log_cb("[测试] 当前完整网格不足5行5列，停止", "red")
@@ -521,15 +530,24 @@ class AutoScanner:
             if self.sample_pattern == "cross":
                 self.log_cb("[测试] 横纵抽样已完成，不翻页", "blue")
                 return
+            if page.has_empty_tail and not tracker.deferred:
+                self.log_cb("[整页] 尾扫完成，基质扫描结束", "blue")
+                return
             if ended:
-                self.log_cb("[整页] 连续两次翻页无新行，扫描结束", "blue")
+                if tracker.deferred:
+                    self.log_cb("[错误] 已无法向下滑动，仍有底部边框不完整的基质未扫描，请复核", "red")
+                else:
+                    self.log_cb("[整页] 连续两次翻页无新行，扫描结束", "blue")
                 return
             try:
-                plan = page_swipe_plan(page, roi, env["ui_scale"])
+                plan = scroll.plan(page, roi)
             except ValueError as exc:
-                self.log_cb(f"[整页] {exc}，当前可见基质已处理，停止", "blue")
+                if tracker.deferred:
+                    self.log_cb(f"[错误] {exc}，底部仍有 {tracker.deferred} 格未扫描，请复核", "red")
+                else:
+                    self.log_cb(f"[整页] {exc}，当前可见基质已处理，停止", "blue")
                 return
-            self.log_cb(f"[整页滑动] 距离 {plan['distance']}px，计划推进{plan['advance_rows']}行，保留{plan['overlap_rows']}行重叠，终点按住700ms", "gray")
+            self.log_cb(f"[整页滑动] 距离 {plan['distance']}px，计划推进{plan['advance_rows']}行，保留{plan['overlap_rows']}行重叠，起步补偿{plan['compensation']:.1f}px，偏移修正{plan['drift_correction']:.1f}px，终点按住700ms", "gray")
             self.controller.swipe_page(env, plan, lambda: self.running)
 
     def _limit_reached(self):
