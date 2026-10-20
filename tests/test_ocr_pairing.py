@@ -64,6 +64,16 @@ class PairingTests(unittest.TestCase):
         self.assertEqual(levels, [6, 6, 3])
         self.assertFalse(self.v.last_ocr_issue)
 
+    def test_watermark_digit_is_not_an_extra_level(self):
+        # 顶部水印经纠错表 I→1 后形如 P1JJHJXU，不能当作等级或抢走第一行。
+        for watermark in ('P1JJHJXU', 'P1J JHJX'):
+            with self.subTest(watermark=watermark):
+                _, _, levels = self.v.parse_ocr_lines(self.names + [
+                    token(watermark, 120, 0), token('+6', 180, 15),
+                    token('+6', 180, 55), token('+3', 180, 95)])
+                self.assertEqual(levels, [6, 6, 3])
+                self.assertFalse(self.v.last_ocr_issue)
+
     def test_progress_bar_cannot_replace_missing_grade(self):
         _, _, levels = self.v.parse_ocr_lines(self.names + [
             token('1', 0, 55), token('+6', 180, 15), token('+3', 180, 95)])

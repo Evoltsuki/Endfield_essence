@@ -90,7 +90,7 @@ def parse_catalog(payload):
     entries = tables[0]["attrs"].get("entries")
     if not isinstance(entries, list) or not entries:
         raise WeaponDataError("FZ Wiki 武器总表为空或格式错误")
-    result, names = [], set()
+    by_name = {}
     for entry in entries:
         if not isinstance(entry, dict):
             raise WeaponDataError("FZ Wiki 武器记录格式错误")
@@ -99,16 +99,29 @@ def parse_catalog(payload):
         rarity = entry.get("rarity")
         if type(rarity) is not int or rarity not in range(1, 7):
             raise WeaponDataError(f"FZ Wiki 星级无法确认: {name}")
-        if title != f"武器/{name}" or name in names:
+        if title != f"武器/{name}":
             raise WeaponDataError(f"FZ Wiki 详情关联错误或武器重复: {name}")
-        names.add(name)
         if rarity < 5:
             continue
         fields = [entry.get(key) for key in TERM_FIELDS]
         if any(not isinstance(field, list) or len(field) > 1 for field in fields):
             raise WeaponDataError(f"FZ Wiki 总表词条格式错误: {name}")
         terms = tuple(_term(field[0], i) for i, field in enumerate(fields)) if all(fields) else None
-        result.append(WeaponEntry(name, rarity, title, terms))
+        candidate = WeaponEntry(name, rarity, title, terms)
+        previous = by_name.get(name)
+        if previous is None:
+            by_name[name] = candidate
+            continue
+        # The roster can repeat a name for a skin/variant article that publishes
+        # no terms (for example 宏愿 and the *_ink row). Keep the canonical row
+        # that actually carries terms; any other disagreement is still an error.
+        if (previous.rarity == candidate.rarity
+                and previous.terms != candidate.terms
+                and (previous.terms is None) != (candidate.terms is None)):
+            by_name[name] = candidate if candidate.terms else previous
+            continue
+        raise WeaponDataError(f"FZ Wiki 详情关联错误或武器重复: {name}")
+    result = list(by_name.values())
     if not result:
         raise WeaponDataError("FZ Wiki 没有五星或六星武器")
     return result

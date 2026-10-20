@@ -11,6 +11,10 @@ from core.update import UpdateWeapon
 from gui.output import display_message
 from utils.version import APP_TITLE
 
+# 预览用的词条 ROI 顶部带有“附加技能”标题残余；OCR 仍使用完整 ROI，
+# 只在显示时裁掉这一小段，避免第一行词条被贴边。
+PREVIEW_TOP_CROP = .06
+
 
 class MatrixAssistantApp:
     def __init__(self, root, dm, controller, analyzer, diagnostics=None):
@@ -205,6 +209,7 @@ class MatrixAssistantApp:
         # 只保留当前预览图片，历史表格保留文字，避免扫描整个背包时积累图像。
         frame = data.get("image")
         if frame is not None:
+            frame = frame[int(frame.shape[0] * PREVIEW_TOP_CROP):]
             preview = Image.fromarray(frame[:, :, ::-1])
             preview.thumbnail((330, 105), Image.Resampling.LANCZOS)
             self.current_preview = ImageTk.PhotoImage(preview)

@@ -235,17 +235,23 @@ class VisionAnalyzer:
                          height=max(ys)-min(ys), confidence=float(confidence))
             name = re.sub(r'[^\u4e00-\u9fff]', '', txt)
             nums = re.findall(r'(?<!\d)[+＋]?\s*([1-6])(?!\d)', txt)
+            # 只有整段就是等级的数字才算独立等级框。水印、页码或
+            # “P1JJHJXU”这类文字里的数字不能参与配对。
+            grade = re.fullmatch(r'[+＋]?\s*([1-6])', txt.strip())
             if len(name) >= 2:
                 names.append(dict(token, name=name, inline=int(nums[0]) if len(nums)==1 else None))
-            if nums and len(name) < 2:
-                numbers.append(dict(token, value=int(nums[0]) if len(nums)==1 else 0))
+            elif grade:
+                numbers.append(dict(token, value=int(grade.group(1))))
         names.sort(key=lambda t: t['y'])
         # 名称下面的等级进度条可能被读成“1”等字符，但位于名称列。
-        # 等级数字必须在名称右侧；左侧装饰不参与配对或多余等级判断。
-        # 右侧重复/低置信度数字仍保留，交给原来的严格校验拒绝。
+        # 等级数字必须在名称右侧且不高于第一行名称，左侧装饰和顶部水印
+        # 不参与配对或多余等级判断。右侧重复/低置信度数字仍保留，
+        # 交给原来的严格校验拒绝。
         if names:
             name_column_right = min(name['right'] for name in names)
-            numbers = [number for number in numbers if number['x'] > name_column_right]
+            name_top = min(name['y'] - name['height'] * .6 for name in names)
+            numbers = [number for number in numbers
+                       if number['x'] > name_column_right and number['y'] >= name_top]
         skills, levels, used = [], [], set()
         for index, name in enumerate(names):
             level = name['inline']

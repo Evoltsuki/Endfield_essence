@@ -5,6 +5,8 @@ import tempfile
 import json
 from unittest.mock import Mock, patch
 
+import numpy as np
+
 from gui.app import MatrixAssistantApp
 from utils.session_log import SessionLog
 from gui.windows import show_weapon_editor_popup
@@ -25,6 +27,13 @@ class GuiWorkflowTests(unittest.TestCase):
         for timer in self.root.tk.call("after", "info"):
             self.root.after_cancel(timer)
         self.root.destroy()
+
+    def test_preview_trims_header_above_first_skill_row(self):
+        frame = np.zeros((260, 520, 3), dtype=np.uint8)
+        self.app._add_scan_result_safe({"image": frame})
+        # 原始比例缩略图宽 210；裁掉顶部后同高度下宽应更大。
+        self.assertEqual(self.app.current_preview.height(), 105)
+        self.assertGreater(self.app.current_preview.width(), 210)
 
     def test_cancel_preparation_never_activates_game(self):
         with patch("gui.app.threading.Thread"):

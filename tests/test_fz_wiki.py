@@ -87,6 +87,25 @@ class FzWikiTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(parse_weapon_detail(fixture(name), self.entries[name]), [name, '6星', *terms])
 
+    def test_duplicate_variant_without_terms_keeps_complete_row(self):
+        data = deepcopy(self.catalog)
+        row = next(entry for entry in self.roster(data) if entry['name'] == '宏愿')
+        variant = deepcopy(row)
+        variant.update(termsMain=[], termsSub=[], termsSkill=[])
+        self.roster(data).append(variant)
+        entries = {entry.name: entry for entry in parse_catalog(data)}
+        self.assertEqual(entries['宏愿'].terms, ('敏捷提升', '攻击提升', '附术'))
+        self.assertEqual(len(entries), len(self.entries))
+
+    def test_conflicting_duplicate_rows_are_rejected(self):
+        data = deepcopy(self.catalog)
+        row = next(entry for entry in self.roster(data) if entry['name'] == '宏愿')
+        conflict = deepcopy(row)
+        conflict['termsSkill'] = ['迸发']
+        self.roster(data).append(conflict)
+        with self.assertRaises(WeaponDataError):
+            parse_catalog(data)
+
     def test_invalid_api_envelopes_are_rejected(self):
         samples = [None, [], {'error': 'unavailable'}, {'code': 10001, 'message': 'invalid device'}]
         for part, key, value in (
